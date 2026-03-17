@@ -35,6 +35,9 @@ extern "C" {
 #define USER_APP_LICENSE            "your_app_license"
 #define USER_DEVELOPER_ACCOUNT      "your_developer_account"
 #define USER_BAUD_RATE              "your_baud_rate"
+#define USER_PSDK_ALIAS             "your_psdk_alias"
+#define USER_PSDK_SERIAL_NUMBER     "your_psdk_serial_number"
+#define USER_PSDK_LOG_PATH          "Logs/DJI"
 
 #ifdef __cplusplus
 }

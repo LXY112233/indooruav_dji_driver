@@ -147,23 +147,19 @@ indooruav_dji_driver/
 
 如果本地文件不存在，程序会继续编译，但运行时会因为仍是占位符而报错退出。
 
-### 4.2 Alias / Serial Number 的实际来源
+### 4.2 运行时本地配置
 
-虽然 `config/mavic_3t_config.yaml` 中存在：
+- `include/dependences/dji_sdk_app_info_local.h`
 
-- `application.alias`
-- `application.serial_number`
-- `application.log_path`
+仓库中只保留模板文件：
 
-但当前代码并 **没有** 从这个 YAML 读取这些值。
+- `include/dependences/dji_sdk_app_info_local.h.example`
 
-节点实际使用的是 `src/dependences/application.cpp` 里写死的内容：
+`Application` 初始化阶段会从本地头文件读取下面这几个宏：
 
-- alias: `PSDK_APPALIAS`
-- serial number: `PSDK18866738158XX`
-- 日志目录宏: `Logs/DJI`
-
-如果你希望这些值可配置，需要进一步修改 `Application` 初始化逻辑。
+- `USER_PSDK_ALIAS`
+- `USER_PSDK_SERIAL_NUMBER`
+- `USER_PSDK_LOG_PATH`
 
 ### 4.3 安装位置检查
 
@@ -431,11 +427,6 @@ rosservice call /PSDK/DjiGimbalController/GimbalPitchAngleInDegService \
 
 说明：
 
-- `application.alias`
-- `application.serial_number`
-- `application.log_path`
-
-这三个字段虽然写在 YAML 里，但当前代码没有使用。
 
 ## 9. 控制权切换逻辑
 
@@ -472,7 +463,6 @@ rosservice call /PSDK/DjiGimbalController/GimbalPitchAngleInDegService \
 如果你准备继续完善这个包，比较值得优先做的方向有：
 
 - 把 DJI 内部订阅数据桥接成标准 ROS topic
-- 将 `application.alias / serial_number / log_path` 改为真正可配置
 - 将录像、停止录像、变焦单独封装成服务或 action
 - 为强制降落和普通降落拆分不同服务名，减少误用风险
 - 增加状态诊断、错误码说明和运行自检

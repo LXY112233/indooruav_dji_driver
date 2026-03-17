@@ -40,7 +40,6 @@
 #include <hal_uart.h>
 
 /* Private constants ---------------------------------------------------------*/
-#define DJI_LOG_PATH                    "Logs/DJI"
 #define DJI_LOG_INDEX_FILE_NAME         "Logs/latest"
 #define DJI_LOG_FOLDER_NAME             "Logs"
 #define DJI_LOG_PATH_MAX_SIZE           (128)
@@ -209,7 +208,7 @@ void Application::DjiUser_SetupEnvironment()
         throw std::runtime_error("Register osal filesystem handler error.");
     }
 
-    if (DjiUser_LocalWriteFsInit(DJI_LOG_PATH) != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
+    if (DjiUser_LocalWriteFsInit(USER_PSDK_LOG_PATH) != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
         throw std::runtime_error("File system init error.");
     }
 
@@ -260,7 +259,7 @@ void Application::DjiUser_ApplicationStart()
         throw std::runtime_error("Please run this sample on extension port or skyport v3.");
     }
 
-    returnCode = DjiCore_SetAlias("PSDK_APPALIAS");
+    returnCode = DjiCore_SetAlias(USER_PSDK_ALIAS);
     if (returnCode != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
         throw std::runtime_error("Set alias error.");
     }
@@ -276,7 +275,7 @@ void Application::DjiUser_ApplicationStart()
      * 于是我将原本的程序注释，写一段新的
      */
     // returnCode = DjiCore_SetSerialNumber("PSDK12345678XX");
-    returnCode = DjiCore_SetSerialNumber("PSDK18866738158XX");
+    returnCode = DjiCore_SetSerialNumber(USER_PSDK_SERIAL_NUMBER);
     if (returnCode != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
         throw std::runtime_error("Set serial number error");
     }
