@@ -590,7 +590,7 @@ DjiDataSubscriptionManager::DjiDataSubscriptionManager() {
     this->usability_ = false;
 
     T_DjiReturnCode djiStat;
-
+    
     djiStat = this->Init();
     if (djiStat != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS){
         USER_LOG_ERROR("DjiDataSubscriptionManager.Init() failed.");

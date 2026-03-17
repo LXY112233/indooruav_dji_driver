@@ -11,6 +11,7 @@
 extern "C" {
 #endif
 
+//一些回调函数
 T_DjiReturnCode Dji_FcSubscriptionReceiveQuaternionCallback(
     const uint8_t* data, uint16_t data_size,
     const T_DjiDataTimestamp* timestamp);
