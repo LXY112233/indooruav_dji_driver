@@ -59,8 +59,7 @@ class DjiDataSubscriptionManager {
  public:
   DjiDataSubscriptionManager();
   DjiDataSubscriptionManager(const DjiDataSubscriptionManager& other) = delete;
-  DjiDataSubscriptionManager& operator=(
-      const DjiDataSubscriptionManager& other) = delete;
+  DjiDataSubscriptionManager& operator=(const DjiDataSubscriptionManager& other) = delete;
   ~DjiDataSubscriptionManager() = default;
 
   bool CheckUsability() const;

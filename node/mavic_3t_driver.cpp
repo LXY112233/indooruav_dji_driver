@@ -33,7 +33,7 @@ int main(int argc, char* argv[]) {
     DjiFlightController flight_controller(osal_handler);
 
     DjiGimbalController gimbal_controller(osal_handler);
-    
+
     DjiCameraController camera_controller(osal_handler);
 
     ros::spin();

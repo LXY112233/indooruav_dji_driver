@@ -23,8 +23,8 @@ class DjiCameraController {
 
   bool ShootPhoto();
   bool SetOpticalZoomParam(dji_f32_t zoom_factor);
-  bool StartRecord();
-  bool StopRecord();
+  bool StartRecord();   //未使用
+  bool StopRecord();    //未使用
   bool ServiceCameraShootPhotoCallback(
       indooruav_dji_driver::PSDK_CameraShootPhoto::Request& request,
       indooruav_dji_driver::PSDK_CameraShootPhoto::Response& response);
