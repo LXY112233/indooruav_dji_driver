@@ -12,7 +12,7 @@
 namespace {
 
 constexpr char kParamPrefix[] = "/indooruav_dji_driver/dji_mavic_3t";
-constexpr char kDefaultCommandTopic[] = "/PSDK/DjiFlightController/CommandInDjiBodyFRU";
+constexpr char kDefaultCommandTopic[] = "/PSDK/DjiFlightController/CommandInBodyFLU";
 constexpr char kDefaultTakeoffService[] = "/PSDK/DjiFlightController/TakeOffService";
 constexpr char kDefaultLandingService[] = "/PSDK/DjiFlightController/LandingService";
 
@@ -233,9 +233,9 @@ DjiFlightController::DjiFlightController(T_DjiOsalHandler* osal_handler)
   rc_value_detection_timer_ = node_handle_.createTimer(ros::Duration(1.0 / detection_frequency_hz), &DjiFlightController::TimerRcValueDetectionCallback, this);
   rc_value_detection_timer_.stop();
 
-  command_in_dji_body_fru_subscriber_ = node_handle_.subscribe(
-      GetStringParam("/topics/command_in_dji_body_fru", kDefaultCommandTopic),
-      10, &DjiFlightController::CallbackCommandInDjiBodyFRU, this);
+  command_in_body_flu_subscriber_ = node_handle_.subscribe(
+      GetStringParam("/topics/command_in_body_flu", kDefaultCommandTopic),
+      10, &DjiFlightController::CallbackCommandInBodyFLU, this);
   takeoff_server_ = node_handle_.advertiseService(
       GetStringParam("/services/takeoff", kDefaultTakeoffService),
       &DjiFlightController::ServiceTakeOffCallback, this);
@@ -490,16 +490,16 @@ void DjiFlightController::TimerRcValueDetectionCallback(const ros::TimerEvent& e
   }
 }
 
-void DjiFlightController::CallbackCommandInDjiBodyFRU(const geometry_msgs::TwistStamped::ConstPtr& message) {
+void DjiFlightController::CallbackCommandInBodyFLU(const geometry_msgs::TwistStamped::ConstPtr& message) {
   if (!initialized_) {
     return;
   }
 
   T_DjiFlightControllerJoystickCommand joystick_command = {};
   joystick_command.x = static_cast<dji_f32_t>(message->twist.linear.x);
-  joystick_command.y = static_cast<dji_f32_t>(message->twist.linear.y);
+  joystick_command.y = static_cast<dji_f32_t>(-message->twist.linear.y);
   joystick_command.z = static_cast<dji_f32_t>(message->twist.linear.z);
-  joystick_command.yaw = static_cast<dji_f32_t>(message->twist.angular.z);
+  joystick_command.yaw = static_cast<dji_f32_t>(-message->twist.angular.z);
 
   const T_DjiReturnCode return_code = DjiFlightController_ExecuteJoystickAction(joystick_command);
   if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {

@@ -1,7 +1,7 @@
 indooruav_dji_driver:
   dji_mavic_3t:
     topics:
-      command_in_dji_body_fru: "/PSDK/DjiFlightController/CommandInDjiBodyFRU"
+      command_in_body_flu: "/PSDK/DjiFlightController/CommandInBodyFLU"
 
     services:
       takeoff: "/PSDK/DjiFlightController/TakeOffService"

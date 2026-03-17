@@ -4,7 +4,7 @@
 
 当前实现以 `mavic_3t_driver_node` 为核心，完成了以下几类能力：
 
-- 通过 `geometry_msgs/TwistStamped` 向飞控发送机体系速度指令
+- 订阅 `geometry_msgs/TwistStamped` 的机体系 FLU 速度控制命令
 - 提供起飞、强制降落、云台俯仰控制、相机拍照服务
 - 初始化 DJI Payload SDK 运行环境
 - 订阅 DJI 飞控内部状态数据，用于控制逻辑和状态判断
@@ -228,28 +228,57 @@ Logs/
 
 ### 7.1 订阅话题
 
-#### `/PSDK/DjiFlightController/CommandInDjiBodyFRU`
+#### `/PSDK/DjiFlightController/CommandInBodyFLU`
 
 - 类型：`geometry_msgs/TwistStamped`
-- 作用：向飞控发送 joystick 速度控制命令
-- 默认参数路径：`/indooruav_dji_driver/dji_mavic_3t/topics/command_in_dji_body_fru`
+- 作用：订阅 ROS 标准机体系 `FLU` 控制命令
+- 默认参数路径：`/indooruav_dji_driver/dji_mavic_3t/topics/command_in_body_flu`
 
 字段映射关系如下：
 
-- `twist.linear.x` -> 机体系 FRU 下 `x` 方向速度，前方为正，单位 `m/s`
-- `twist.linear.y` -> 机体系 FRU 下 `y` 方向速度，右方为正，单位 `m/s`
+- `twist.linear.x` -> 机体系 FLU 下 `x` 方向速度，前方为正，单位 `m/s`
+- `twist.linear.y` -> 机体系 FLU 下 `y` 方向速度，左方为正，单位 `m/s`
 - `twist.linear.z` -> `z` 方向速度，向上为正，单位 `m/s`
-- `twist.angular.z` -> 偏航角速度命令，单位 `deg/s`
+- `twist.angular.z` -> 机体系 FLU 下偏航角速度，按 ROS 右手系约定，单位 `deg/s`
 
-当前飞控 joystick mode 被固定设置为：
+回调函数会在发送给 DJI 前做如下转换：
+
+- `x_dji = x_flu`
+- `y_dji = -y_flu`
+- `z_dji = z_flu`
+- `yaw_dji = -yaw_flu`
+
+也可以按坐标系理解为：
+
+- ROS `FLU` 中 `+X` 为前、`+Y` 为左、`+Z` 为上
+- DJI `FRU` 中 `+X` 为前、`+Y` 为右、`+Z` 为上
+- 因此线速度只需要对 `y` 轴反号
+- 当前代码里 `yaw` 也做了反号后再发送给 DJI
+
+回调函数 `CallbackCommandInBodyFLU()` 当前实际会做这些事情：
+
+1. 检查飞控是否已经初始化；如果 `initialized_ == false`，直接返回。
+2. 从 `geometry_msgs/TwistStamped` 中读取：
+   `linear.x`、`linear.y`、`linear.z`、`angular.z`
+3. 按上面的 FLU -> FRU 规则装载到 `T_DjiFlightControllerJoystickCommand`
+4. 调用 `DjiFlightController_ExecuteJoystickAction()` 将命令发送给 DJI 飞控
+5. 如果下发失败，打印 warning 日志
+
+当前未使用的字段有：
+
+- `twist.angular.x`
+- `twist.angular.y`
+- `header`
+
+飞控 joystick mode 仍然会初始化为：
 
 - 水平控制：速度模式
 - 垂直控制：速度模式
 - 偏航控制：角速度模式
-- 水平坐标系：机体系 `FRU`
+- 水平坐标系：DJI 机体系 `FRU`
 - 稳定模式：开启
 
-因此，`x/y` 是机体系速度，`z` 是竖直速度，`yaw` 是偏航角速度命令。
+因此，现在已经完成了 FLU 指令到 DJI joystick command 的基础符号映射与发送。
 
 按当前 PSDK joystick mode 定义，常见控制范围可按下面理解：
 
@@ -260,7 +289,7 @@ Logs/
 示例：
 
 ```bash
-rostopic pub -r 20 /PSDK/DjiFlightController/CommandInDjiBodyFRU geometry_msgs/TwistStamped \
+rostopic pub -r 20 /PSDK/DjiFlightController/CommandInBodyFLU geometry_msgs/TwistStamped \
 '{
   header: {stamp: now, frame_id: ""},
   twist: {
@@ -389,7 +418,7 @@ rosservice call /PSDK/DjiGimbalController/GimbalPitchAngleInDegService \
 
 | 参数路径 | 默认值 | 说明 |
 | --- | --- | --- |
-| `/topics/command_in_dji_body_fru` | `/PSDK/DjiFlightController/CommandInDjiBodyFRU` | 速度控制订阅话题 |
+| `/topics/command_in_body_flu` | `/PSDK/DjiFlightController/CommandInBodyFLU` | FLU 速度控制命令订阅话题 |
 | `/services/takeoff` | `/PSDK/DjiFlightController/TakeOffService` | 起飞服务名 |
 | `/services/landing` | `/PSDK/DjiFlightController/LandingService` | 降落服务名 |
 | `/services/camera_shoot_photo` | `/PSDK/DjiCameraController/CameraShootPhoto` | 拍照服务名 |

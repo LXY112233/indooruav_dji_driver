@@ -35,7 +35,7 @@ class DjiFlightController {
 
   void TimerRcValueDetectionCallback(
       const ros::TimerEvent& event);
-  void CallbackCommandInDjiBodyFRU(
+  void CallbackCommandInBodyFLU(
       const geometry_msgs::TwistStamped::ConstPtr& message);
   bool ServiceTakeOffCallback(
       indooruav_dji_driver::PSDK_TakeOff::Request& request,
@@ -48,7 +48,7 @@ class DjiFlightController {
   T_DjiOsalHandler* osal_handler_;
   ros::NodeHandle node_handle_;
   ros::Timer rc_value_detection_timer_;
-  ros::Subscriber command_in_dji_body_fru_subscriber_;
+  ros::Subscriber command_in_body_flu_subscriber_;
   ros::ServiceServer takeoff_server_;
   ros::ServiceServer landing_server_;
 };
