@@ -16,8 +16,3 @@ indooruav_dji_driver:
         latitude_rad: 0.0
         longitude_rad: 0.0
         altitude_m: 0
-
-      application:
-        alias: "PSDK_APPALIAS"
-        serial_number: "PSDK18866738158XX"
-        log_path: "Logs/DJI"

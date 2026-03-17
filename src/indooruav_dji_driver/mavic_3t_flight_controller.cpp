@@ -149,7 +149,8 @@ bool MotorStartedCheck(const DjiFlightController& controller) {
   int cycles = 0;
   while ((GetLatestValueOfFlightState() != DJI_FC_SUBSCRIPTION_FLIGHT_STATUS_ON_GROUND ||
           GetLatestValueOfDisplayMode() != DJI_FC_SUBSCRIPTION_DISPLAY_MODE_ENGINE_START) &&
-         cycles < kMotorStartedTimeoutCycles) {
+         cycles < kMotorStartedTimeoutCycles) 
+  {
     ++cycles;
     controller.GetOsalHandler()->TaskSleepMs(100);
   }
@@ -160,7 +161,8 @@ bool TakeOffInAirCheck(const DjiFlightController& controller) {
   int cycles = 0;
   while (GetLatestValueOfFlightState() != DJI_FC_SUBSCRIPTION_FLIGHT_STATUS_IN_AIR &&
          !IsTakeoffDisplayMode(GetLatestValueOfDisplayMode()) &&
-         cycles < kTakeoffInAirTimeoutCycles) {
+         cycles < kTakeoffInAirTimeoutCycles) 
+  {
     ++cycles;
     controller.GetOsalHandler()->TaskSleepMs(100);
   }
@@ -179,6 +181,48 @@ bool TakeoffFinishedCheck(const DjiFlightController& controller) {
 }
 
 }  // namespace
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 DjiFlightController::DjiFlightController(T_DjiOsalHandler* osal_handler)
     : initialized_(false), osal_handler_(osal_handler), node_handle_() {
@@ -221,17 +265,13 @@ T_DjiReturnCode DjiFlightController::Init() {
 
   T_DjiReturnCode return_code = DjiFlightController_Init(rid_info);
   if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
-    USER_LOG_ERROR("Init flight controller failed, error code: 0x%08X",
-                   return_code);
+    USER_LOG_ERROR("Init flight controller failed, error code: 0x%08X", return_code);
     return return_code;
   }
 
-  return_code = DjiFlightController_RegJoystickCtrlAuthorityEventCallback(
-      Dji_FlightControlJoystickCtrlAuthSwitchEventCallback);
+  return_code = DjiFlightController_RegJoystickCtrlAuthorityEventCallback(Dji_FlightControlJoystickCtrlAuthSwitchEventCallback);
   if (!IsSuccessOrUnsupported(return_code)) {
-    USER_LOG_ERROR(
-        "Register joystick authority callback failed, error code: 0x%08X",
-        return_code);
+    USER_LOG_ERROR("Register joystick authority callback failed, error code: 0x%08X", return_code);
     return return_code;
   }
 
@@ -274,8 +314,7 @@ T_DjiReturnCode DjiFlightController::DeInit() {
 
   const T_DjiReturnCode return_code = DjiFlightController_DeInit();
   if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
-    USER_LOG_ERROR("Flight controller deinit failed, error code: 0x%08X",
-                   return_code);
+    USER_LOG_ERROR("Flight controller deinit failed, error code: 0x%08X", return_code);
   }
 
   return return_code;
@@ -351,8 +390,7 @@ bool DjiFlightController::StartForceLanding() {
 
   const T_DjiReturnCode return_code = DjiFlightController_StartForceLanding();
   if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
-    USER_LOG_ERROR("Request force landing failed, error code: 0x%08X",
-                   return_code);
+    USER_LOG_ERROR("Request force landing failed, error code: 0x%08X", return_code);
     return false;
   }
 
@@ -365,11 +403,9 @@ bool DjiFlightController::ObtainJoystickCtrlAuthority() {
     return false;
   }
 
-  const T_DjiReturnCode return_code =
-      DjiFlightController_ObtainJoystickCtrlAuthority();
+  const T_DjiReturnCode return_code = DjiFlightController_ObtainJoystickCtrlAuthority();
   if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
-    USER_LOG_ERROR("Obtain joystick authority failed, error code: 0x%08X",
-                   return_code);
+    USER_LOG_ERROR("Obtain joystick authority failed, error code: 0x%08X", return_code);
     return false;
   }
 
@@ -383,11 +419,9 @@ bool DjiFlightController::ReleaseJoystickCtrlAuthority() {
     return false;
   }
 
-  const T_DjiReturnCode return_code =
-      DjiFlightController_ReleaseJoystickCtrlAuthority();
+  const T_DjiReturnCode return_code = DjiFlightController_ReleaseJoystickCtrlAuthority();
   if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
-    USER_LOG_ERROR("Release joystick authority failed, error code: 0x%08X",
-                   return_code);
+    USER_LOG_ERROR("Release joystick authority failed, error code: 0x%08X", return_code);
     return false;
   }
 
@@ -396,35 +430,26 @@ bool DjiFlightController::ReleaseJoystickCtrlAuthority() {
 
 bool DjiFlightController::SetVelocityJoystickMode() {
   T_DjiFlightControllerJoystickMode joystick_mode = {};
-  joystick_mode.horizontalControlMode =
-      DJI_FLIGHT_CONTROLLER_HORIZONTAL_VELOCITY_CONTROL_MODE;
-  joystick_mode.verticalControlMode =
-      DJI_FLIGHT_CONTROLLER_VERTICAL_VELOCITY_CONTROL_MODE;
-  joystick_mode.yawControlMode =
-      DJI_FLIGHT_CONTROLLER_YAW_ANGLE_RATE_CONTROL_MODE;
-  joystick_mode.horizontalCoordinate =
-      DJI_FLIGHT_CONTROLLER_HORIZONTAL_BODY_COORDINATE;
-  joystick_mode.stableControlMode =
-      DJI_FLIGHT_CONTROLLER_STABLE_CONTROL_MODE_ENABLE;
+  joystick_mode.horizontalControlMode = DJI_FLIGHT_CONTROLLER_HORIZONTAL_VELOCITY_CONTROL_MODE;
+  joystick_mode.verticalControlMode   = DJI_FLIGHT_CONTROLLER_VERTICAL_VELOCITY_CONTROL_MODE;
+  joystick_mode.yawControlMode        = DJI_FLIGHT_CONTROLLER_YAW_ANGLE_RATE_CONTROL_MODE;
+  joystick_mode.horizontalCoordinate  = DJI_FLIGHT_CONTROLLER_HORIZONTAL_BODY_COORDINATE;
+  joystick_mode.stableControlMode     = DJI_FLIGHT_CONTROLLER_STABLE_CONTROL_MODE_ENABLE;
   DjiFlightController_SetJoystickMode(joystick_mode);
   return true;
 }
 
-void DjiFlightController::TimerRcValueDetectionCallback(
-    const ros::TimerEvent& event) {
+void DjiFlightController::TimerRcValueDetectionCallback(const ros::TimerEvent& event) {
   (void)event;
   if (!initialized_) {
     return;
   }
 
   static ros::Time last_zero_time;
-  const double rc_zero_deadband =
-      GetDoubleParam("/parameters/rc_zero_deadband", kDefaultRcZeroDeadband);
+  const double rc_zero_deadband = GetDoubleParam("/parameters/rc_zero_deadband", kDefaultRcZeroDeadband);
 
-  const T_DjiFcSubscriptionRCWithFlagData rc_with_flag_data =
-      GetLatestValueOfRCWithFlagData();
-  const T_DjiFcSubscriptionControlDevice control_device =
-      GetLatestValueOfControlDevice();
+  const T_DjiFcSubscriptionRCWithFlagData rc_with_flag_data = GetLatestValueOfRCWithFlagData();
+  const T_DjiFcSubscriptionControlDevice control_device = GetLatestValueOfControlDevice();
 
   if (last_zero_time.isZero()) {
     last_zero_time = ros::Time::now();
@@ -435,24 +460,19 @@ void DjiFlightController::TimerRcValueDetectionCallback(
     return;
   }
 
-  if (!IsRcStickNeutral(rc_with_flag_data, rc_zero_deadband) &&
-      control_device.controlAuthority ==
-          DJI_FC_SUBSCRIPTION_CONTROL_AUTHORITY_PSDK) {
-    USER_LOG_INFO(
-        "RC input detected, releasing joystick authority back to the RC.");
+  if (!IsRcStickNeutral(rc_with_flag_data, rc_zero_deadband) && control_device.controlAuthority == DJI_FC_SUBSCRIPTION_CONTROL_AUTHORITY_PSDK) {
+    USER_LOG_INFO("RC input detected, releasing joystick authority back to the RC.");
     ReleaseJoystickCtrlAuthority();
     last_zero_time = ros::Time::now();
     return;
   }
 
-  if (control_device.controlAuthority ==
-      DJI_FC_SUBSCRIPTION_CONTROL_AUTHORITY_PSDK) {
+  if (control_device.controlAuthority == DJI_FC_SUBSCRIPTION_CONTROL_AUTHORITY_PSDK) {
     last_zero_time = ros::Time::now();
     return;
   }
 
-  if (control_device.controlAuthority !=
-      DJI_FC_SUBSCRIPTION_CONTROL_AUTHORITY_RC) {
+  if (control_device.controlAuthority != DJI_FC_SUBSCRIPTION_CONTROL_AUTHORITY_RC) {
     last_zero_time = ros::Time::now();
     return;
   }
@@ -463,18 +483,14 @@ void DjiFlightController::TimerRcValueDetectionCallback(
   }
 
   const ros::Time current_time = ros::Time::now();
-  if ((current_time - last_zero_time).toSec() >=
-      kRcControlReturnDelaySeconds) {
-    USER_LOG_INFO(
-        "RC sticks have been neutral for 5 seconds, reclaiming joystick "
-        "authority.");
+  if ((current_time - last_zero_time).toSec() >= kRcControlReturnDelaySeconds) {
+    USER_LOG_INFO("RC sticks have been neutral for 5 seconds, reclaiming joystick authority.");
     ObtainJoystickCtrlAuthority();
     last_zero_time = current_time;
   }
 }
 
-void DjiFlightController::CallbackCommandInDjiBodyFRU(
-    const geometry_msgs::TwistStamped::ConstPtr& message) {
+void DjiFlightController::CallbackCommandInDjiBodyFRU(const geometry_msgs::TwistStamped::ConstPtr& message) {
   if (!initialized_) {
     return;
   }
@@ -485,17 +501,16 @@ void DjiFlightController::CallbackCommandInDjiBodyFRU(
   joystick_command.z = static_cast<dji_f32_t>(message->twist.linear.z);
   joystick_command.yaw = static_cast<dji_f32_t>(message->twist.angular.z);
 
-  const T_DjiReturnCode return_code =
-      DjiFlightController_ExecuteJoystickAction(joystick_command);
+  const T_DjiReturnCode return_code = DjiFlightController_ExecuteJoystickAction(joystick_command);
   if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
-    USER_LOG_WARN("Execute joystick action failed, error code: 0x%08X",
-                  return_code);
+    USER_LOG_WARN("Execute joystick action failed, error code: 0x%08X", return_code);
   }
 }
 
 bool DjiFlightController::ServiceTakeOffCallback(
     indooruav_dji_driver::PSDK_TakeOff::Request& request,
-    indooruav_dji_driver::PSDK_TakeOff::Response& response) {
+    indooruav_dji_driver::PSDK_TakeOff::Response& response) 
+{
   USER_LOG_INFO("------ServiceTakeOffCallback start------");
   if (!request.takeoff) {
     USER_LOG_ERROR("Received false takeoff request, nothing to do.");
@@ -510,7 +525,8 @@ bool DjiFlightController::ServiceTakeOffCallback(
 
 bool DjiFlightController::ServiceLandingCallback(
     indooruav_dji_driver::PSDK_Landing::Request& request,
-    indooruav_dji_driver::PSDK_Landing::Response& response) {
+    indooruav_dji_driver::PSDK_Landing::Response& response) 
+{
   USER_LOG_INFO("------ServiceLandingCallback start------");
   if (!request.landing) {
     USER_LOG_ERROR("Received false landing request, nothing to do.");

@@ -33,7 +33,8 @@ class DjiFlightController {
   bool StartConfirmLanding();
   bool SetVelocityJoystickMode();
 
-  void TimerRcValueDetectionCallback(const ros::TimerEvent& event);
+  void TimerRcValueDetectionCallback(
+      const ros::TimerEvent& event);
   void CallbackCommandInDjiBodyFRU(
       const geometry_msgs::TwistStamped::ConstPtr& message);
   bool ServiceTakeOffCallback(
