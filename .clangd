@@ -1,0 +1,9 @@
+CompileFlags:
+  CompilationDatabase: ../../build
+  FallbackFlags:
+    - -std=gnu++14
+    - -Iinclude
+    - -Iinclude/dependences
+    - -Ipsdk_lib/include
+    - -I../../devel/include
+    - -I/opt/ros/noetic/include

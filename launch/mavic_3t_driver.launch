@@ -1,0 +1,9 @@
+<launch>
+  <rosparam command="load"
+            file="$(find indooruav_dji_driver)/config/mavic_3t_config.yaml" />
+
+  <node pkg="indooruav_dji_driver"
+        type="mavic_3t_driver_node"
+        name="mavic_3t_driver"
+        output="screen" />
+</launch>

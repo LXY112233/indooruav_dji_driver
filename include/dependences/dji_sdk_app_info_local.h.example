@@ -1,0 +1,31 @@
+/**
+ ********************************************************************
+ * @file    dji_sdk_app_info_local.h.example
+ * @brief   Local-only DJI SDK credential template.
+ *
+ * Rename this file to dji_sdk_app_info_local.h and fill in your own
+ * credentials. The real local header is git-ignored on purpose.
+ *
+ *********************************************************************
+ */
+
+#ifndef DJI_SDK_APP_INFO_H
+#define DJI_SDK_APP_INFO_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define USER_APP_NAME               "your_app_name"
+#define USER_APP_ID                 "your_app_id"
+#define USER_APP_KEY                "your_app_key"
+#define USER_APP_LICENSE            "your_app_license"
+#define USER_DEVELOPER_ACCOUNT      "your_developer_account"
+#define USER_BAUD_RATE              "your_baud_rate"
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // DJI_SDK_APP_INFO_H
+/************************ (C) COPYRIGHT DJI Innovations *******END OF FILE******/

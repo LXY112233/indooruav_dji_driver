@@ -1,0 +1,18 @@
+{
+  "ROS2.distro": "noetic",
+  "ros.distro": "noetic",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/../../build/compile_commands.json",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/include",
+    "${workspaceFolder}/include/dependences",
+    "${workspaceFolder}/psdk_lib/include",
+    "${workspaceFolder}/../../devel/include",
+    "/opt/ros/noetic/include",
+    "/usr/include",
+    "/usr/local/include"
+  ],
+  "C_Cpp.default.defines": [],
+  "C_Cpp.default.cppStandard": "gnu++14",
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.default.compilerPath": "/usr/bin/g++"
+}
