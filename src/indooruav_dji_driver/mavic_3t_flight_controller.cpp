@@ -19,6 +19,7 @@ constexpr char kDefaultLandingService[] = "/PSDK/DjiFlightController/LandingServ
 constexpr double kDefaultRcValueDetectionFrequencyHz = 10.0;
 constexpr double kDefaultRcZeroDeadband = 0.02;
 constexpr double kRcControlReturnDelaySeconds = 5.0;
+constexpr double kDegreesPerRadian = 57.29577951308232;
 constexpr int kMotorStartedTimeoutCycles = 20;
 constexpr int kTakeoffInAirTimeoutCycles = 110;
 
@@ -495,11 +496,14 @@ void DjiFlightController::CallbackCommandInBodyFLU(const geometry_msgs::TwistSta
     return;
   }
 
+  const dji_f32_t yaw_rate_deg_per_sec =
+      static_cast<dji_f32_t>(message->twist.angular.z * kDegreesPerRadian);
+
   T_DjiFlightControllerJoystickCommand joystick_command = {};
   joystick_command.x = static_cast<dji_f32_t>(message->twist.linear.x);
   joystick_command.y = static_cast<dji_f32_t>(-message->twist.linear.y);
   joystick_command.z = static_cast<dji_f32_t>(message->twist.linear.z);
-  joystick_command.yaw = static_cast<dji_f32_t>(-message->twist.angular.z);
+  joystick_command.yaw = -yaw_rate_deg_per_sec;
 
   const T_DjiReturnCode return_code = DjiFlightController_ExecuteJoystickAction(joystick_command);
   if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {

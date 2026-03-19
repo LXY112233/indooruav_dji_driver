@@ -235,14 +235,14 @@ Logs/
 - `twist.linear.x` -> 机体系 FLU 下 `x` 方向速度，前方为正，单位 `m/s`
 - `twist.linear.y` -> 机体系 FLU 下 `y` 方向速度，左方为正，单位 `m/s`
 - `twist.linear.z` -> `z` 方向速度，向上为正，单位 `m/s`
-- `twist.angular.z` -> 机体系 FLU 下偏航角速度，按 ROS 右手系约定，单位 `deg/s`
+- `twist.angular.z` -> 机体系 FLU 下偏航角速度，按 ROS 右手系约定，单位 `rad/s`
 
 回调函数会在发送给 DJI 前做如下转换：
 
 - `x_dji = x_flu`
 - `y_dji = -y_flu`
 - `z_dji = z_flu`
-- `yaw_dji = -yaw_flu`
+- `yaw_dji = -yaw_flu * 180 / pi`
 
 也可以按坐标系理解为：
 
@@ -256,7 +256,7 @@ Logs/
 1. 检查飞控是否已经初始化；如果 `initialized_ == false`，直接返回。
 2. 从 `geometry_msgs/TwistStamped` 中读取：
    `linear.x`、`linear.y`、`linear.z`、`angular.z`
-3. 按上面的 FLU -> FRU 规则装载到 `T_DjiFlightControllerJoystickCommand`
+3. 按上面的 FLU -> FRU 规则装载到 `T_DjiFlightControllerJoystickCommand`，其中 `yaw` 会先从 `rad/s` 转成 `deg/s`
 4. 调用 `DjiFlightController_ExecuteJoystickAction()` 将命令发送给 DJI 飞控
 5. 如果下发失败，打印 warning 日志
 
@@ -280,7 +280,8 @@ Logs/
 
 - `x / y`：约 `[-30, 30] m/s`
 - `z`：约 `[-5, 5] m/s`
-- `yaw`：约 `[-150, 150] deg/s`
+- `yaw` 下发给 DJI：约 `[-150, 150] deg/s`
+- 对应订阅输入 `twist.angular.z`：约 `[-2.618, 2.618] rad/s`
 
 示例：
 
@@ -290,7 +291,7 @@ rostopic pub -r 20 /PSDK/DjiFlightController/CommandInBodyFLU geometry_msgs/Twis
   header: {stamp: now, frame_id: ""},
   twist: {
     linear:  {x: 0.3, y: 0.0, z: 0.0},
-    angular: {x: 0.0, y: 0.0, z: 10.0}
+    angular: {x: 0.0, y: 0.0, z: 0.5}
   }
 }'
 ```
