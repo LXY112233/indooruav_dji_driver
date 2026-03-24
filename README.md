@@ -224,49 +224,45 @@ Logs/
 
 ### 7.1 订阅话题
 
+#### `/indooruav/desired_odometry`
+
+- 类型：`nav_msgs/Odometry`
+- 作用：提供激光雷达 `FLU` 坐标系下的期望位置姿态
+- 默认参数路径：`/indooruav_dji_driver/dji_mavic_3t/topics/desired_odometry`
+
+#### `/indooruav/current_odometry`
+
+- 类型：`nav_msgs/Odometry`
+- 作用：提供激光雷达 `FLU` 坐标系下的当前位置姿态
+- 默认参数路径：`/indooruav_dji_driver/dji_mavic_3t/topics/current_odometry`
+
+当 `parameters.position_control.enabled=true` 时，飞控会基于这两路 `Odometry` 执行位置控制：
+
+1. 使用 `message_filters::Synchronizer` 对期望/当前 `Odometry` 做近似时间同步。
+2. 读取 `pose.pose.position` 与四元数姿态中的 `yaw`。
+3. 在激光雷达 `FLU` 坐标系下分别计算 `x / y / z` 位置误差和 `yaw` 误差。
+4. 按 `config/mavic_3t_config.yaml` 里的轴向增益、死区和速度限幅生成 `xyz` 线速度与 `yaw` 角速度。
+5. 使用当前 `yaw` 将水平速度从世界/雷达 `FLU` 转换到机体系 `FLU`。
+6. 再按 `FLU -> DJI FRU` 规则映射到 `T_DjiFlightControllerJoystickCommand` 并下发给 DJI。
+7. 若同步后的 `Odometry` 超时，且 `send_zero_on_timeout=true`，驱动会发送一次零速度命令做保护。
+
+当前实现假设这两路 `Odometry` 的位置与姿态都处在同一个激光雷达 `FLU` 参考系中。
+
 #### `/PSDK/DjiFlightController/CommandInBodyFLU`
 
 - 类型：`geometry_msgs/TwistStamped`
-- 作用：订阅 ROS 标准机体系 `FLU` 控制命令
+- 作用：兼容旧的直接速度控制接口
 - 默认参数路径：`/indooruav_dji_driver/dji_mavic_3t/topics/command_in_body_flu`
+- 生效条件：`/indooruav_dji_driver/dji_mavic_3t/parameters/position_control/enabled=false`
 
-字段映射关系如下：
-
-- `twist.linear.x` -> 机体系 FLU 下 `x` 方向速度，前方为正，单位 `m/s`
-- `twist.linear.y` -> 机体系 FLU 下 `y` 方向速度，左方为正，单位 `m/s`
-- `twist.linear.z` -> `z` 方向速度，向上为正，单位 `m/s`
-- `twist.angular.z` -> 机体系 FLU 下偏航角速度，按 ROS 右手系约定，单位 `rad/s`
-
-回调函数会在发送给 DJI 前做如下转换：
+该模式下会直接读取机体系 `FLU` 下的 `xyz` 速度和 `yaw` 角速度，并按下列规则下发 DJI：
 
 - `x_dji = x_flu`
 - `y_dji = -y_flu`
 - `z_dji = z_flu`
 - `yaw_dji = -yaw_flu * 180 / pi`
 
-也可以按坐标系理解为：
-
-- ROS `FLU` 中 `+X` 为前、`+Y` 为左、`+Z` 为上
-- DJI `FRU` 中 `+X` 为前、`+Y` 为右、`+Z` 为上
-- 因此线速度只需要对 `y` 轴反号
-- 当前代码里 `yaw` 也做了反号后再发送给 DJI
-
-回调函数 `CallbackCommandInBodyFLU()` 当前实际会做这些事情：
-
-1. 检查飞控是否已经初始化；如果 `initialized_ == false`，直接返回。
-2. 从 `geometry_msgs/TwistStamped` 中读取：
-   `linear.x`、`linear.y`、`linear.z`、`angular.z`
-3. 按上面的 FLU -> FRU 规则装载到 `T_DjiFlightControllerJoystickCommand`，其中 `yaw` 会先从 `rad/s` 转成 `deg/s`
-4. 调用 `DjiFlightController_ExecuteJoystickAction()` 将命令发送给 DJI 飞控
-5. 如果下发失败，打印 warning 日志
-
-当前未使用的字段有：
-
-- `twist.angular.x`
-- `twist.angular.y`
-- `header`
-
-飞控 joystick mode 仍然会初始化为：
+飞控 joystick mode 仍然保持：
 
 - 水平控制：速度模式
 - 垂直控制：速度模式
@@ -274,20 +270,10 @@ Logs/
 - 水平坐标系：DJI 机体系 `FRU`
 - 稳定模式：开启
 
-因此，现在已经完成了 FLU 指令到 DJI joystick command 的基础符号映射与发送。
-
-按当前 PSDK joystick mode 定义，常见控制范围可按下面理解：
-
-- `x / y`：约 `[-30, 30] m/s`
-- `z`：约 `[-5, 5] m/s`
-- `yaw` 下发给 DJI：约 `[-150, 150] deg/s`
-- 对应订阅输入 `twist.angular.z`：约 `[-2.618, 2.618] rad/s`
-
-示例：
+兼容模式示例：
 
 ```bash
-rostopic pub -r 20 /PSDK/DjiFlightController/CommandInBodyFLU geometry_msgs/TwistStamped \
-'{
+rostopic pub -r 20 /PSDK/DjiFlightController/CommandInBodyFLU geometry_msgs/TwistStamped '{
   header: {stamp: now, frame_id: ""},
   twist: {
     linear:  {x: 0.3, y: 0.0, z: 0.0},
@@ -415,16 +401,41 @@ rosservice call /PSDK/DjiGimbalController/GimbalPitchAngleInDegService \
 
 | 参数路径 | 默认值 | 说明 |
 | --- | --- | --- |
-| `/topics/command_in_body_flu` | `/PSDK/DjiFlightController/CommandInBodyFLU` | FLU 速度控制命令订阅话题 |
+| `/topics/command_in_body_flu` | `/PSDK/DjiFlightController/CommandInBodyFLU` | 兼容模式下的机体系 FLU 速度控制话题 |
+| `/topics/desired_odometry` | `/indooruav/desired_odometry` | 期望位置姿态 `Odometry` 话题 |
+| `/topics/current_odometry` | `/indooruav/current_odometry` | 当前位置姿态 `Odometry` 话题 |
 | `/services/takeoff` | `/PSDK/DjiFlightController/TakeOffService` | 起飞服务名 |
 | `/services/landing` | `/PSDK/DjiFlightController/LandingService` | 降落服务名 |
 | `/services/camera_shoot_photo` | `/PSDK/DjiCameraController/CameraShootPhoto` | 拍照服务名 |
 | `/services/gimbal_pitch_angle_in_deg` | `/PSDK/DjiGimbalController/GimbalPitchAngleInDegService` | 云台俯仰控制服务名 |
 | `/parameters/rc_value_detection_frequency_hz` | `10.0` | RC 中立检测频率 |
 | `/parameters/rc_zero_deadband` | `0.02` | RC 摇杆中立死区 |
+| `/parameters/rc_control_return_delay_s` | `5.0` | RC 回中后重新申请控制权的等待时间 |
+| `/parameters/command_subscriber_queue_size` | `10` | 兼容模式下直接速度命令订阅队列长度 |
+| `/parameters/takeoff/motor_started_timeout_cycles` | `20` | 起飞时等待电机启动的轮询次数 |
+| `/parameters/takeoff/in_air_timeout_cycles` | `110` | 起飞时等待进入空中的轮询次数 |
 | `/parameters/rid_info/latitude_rad` | `0.0` | RID 纬度，单位 rad |
 | `/parameters/rid_info/longitude_rad` | `0.0` | RID 经度，单位 rad |
 | `/parameters/rid_info/altitude_m` | `0` | RID 高度，单位 m |
+| `/parameters/position_control/enabled` | `true` | 是否启用基于 `Odometry` 的位置控制 |
+| `/parameters/position_control/subscriber_queue_size` | `20` | 两路 `Odometry` 订阅队列长度 |
+| `/parameters/position_control/sync_queue_size` | `50` | `message_filters` 同步队列长度 |
+| `/parameters/position_control/sync_max_interval_s` | `0.05` | 允许的最大同步时间差 |
+| `/parameters/position_control/control_frequency_hz` | `30.0` | 位置控制器输出频率 |
+| `/parameters/position_control/odometry_timeout_s` | `0.2` | 同步 `Odometry` 超时阈值 |
+| `/parameters/position_control/send_zero_on_timeout` | `true` | `Odometry` 超时时是否发送零速度保护命令 |
+| `/parameters/position_control/x/gain` | `0.8` | `x` 轴位置误差增益 |
+| `/parameters/position_control/x/deadband_m` | `0.02` | `x` 轴位置误差死区 |
+| `/parameters/position_control/x/output_limit_mps` | `1.0` | `x` 轴速度限幅 |
+| `/parameters/position_control/y/gain` | `0.8` | `y` 轴位置误差增益 |
+| `/parameters/position_control/y/deadband_m` | `0.02` | `y` 轴位置误差死区 |
+| `/parameters/position_control/y/output_limit_mps` | `1.0` | `y` 轴速度限幅 |
+| `/parameters/position_control/z/gain` | `0.8` | `z` 轴位置误差增益 |
+| `/parameters/position_control/z/deadband_m` | `0.02` | `z` 轴位置误差死区 |
+| `/parameters/position_control/z/output_limit_mps` | `0.8` | `z` 轴速度限幅 |
+| `/parameters/position_control/yaw/gain` | `1.2` | `yaw` 误差增益 |
+| `/parameters/position_control/yaw/deadband_rad` | `0.02` | `yaw` 误差死区 |
+| `/parameters/position_control/yaw/output_limit_radps` | `0.8` | `yaw` 角速度限幅 |
 
 说明：
 
@@ -442,12 +453,12 @@ rosservice call /PSDK/DjiGimbalController/GimbalPitchAngleInDegService \
 逻辑如下：
 
 1. 如果当前控制权属于 PSDK，且检测到 RC 有非中立输入，则驱动立即释放 joystick authority 给 RC。
-2. 如果当前控制权属于 RC，且摇杆已经保持中立连续 5 秒，则驱动会重新申请 joystick authority。
+2. 如果当前控制权属于 RC，且摇杆已经保持中立达到 `rc_control_return_delay_s` 指定时长，则驱动会重新申请 joystick authority。
 
 这意味着：
 
 - 人工遥控可以随时“抢回”控制权
-- 上层程序恢复接管前，需要等待 RC 摇杆回中并保持 5 秒
+- 上层程序恢复接管前，需要等待 RC 摇杆回中并保持 `rc_control_return_delay_s` 指定时长
 
 ## 10. 已知限制与注意事项
 

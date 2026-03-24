@@ -1,7 +1,11 @@
 indooruav_dji_driver:
   dji_mavic_3t:
     topics:
+      # 兼容旧的直接速度控制输入；仅在 parameters.position_control.enabled=false 时使用
       command_in_body_flu: "/PSDK/DjiFlightController/CommandInBodyFLU"
+      # 新增的位置控制输入，均应为激光雷达 FLU 坐标系下的 nav_msgs/Odometry
+      desired_odometry: "/indooruav/desired_odometry"
+      current_odometry: "/indooruav/current_odometry"
 
     services:
       takeoff: "/PSDK/DjiFlightController/TakeOffService"
@@ -12,7 +16,43 @@ indooruav_dji_driver:
     parameters:
       rc_value_detection_frequency_hz: 10.0
       rc_zero_deadband: 0.02
+      rc_control_return_delay_s: 5.0
+      command_subscriber_queue_size: 10
+
+      takeoff:
+        motor_started_timeout_cycles: 20
+        in_air_timeout_cycles: 110
+
       rid_info:
         latitude_rad: 0.0
         longitude_rad: 0.0
         altitude_m: 0
+
+      position_control:
+        enabled: true
+        subscriber_queue_size: 20
+        sync_queue_size: 50
+        sync_max_interval_s: 0.05
+        control_frequency_hz: 30.0
+        odometry_timeout_s: 0.2
+        send_zero_on_timeout: true
+
+        x:
+          gain: 0.8
+          deadband_m: 0.10
+          output_limit_mps: 1.0
+
+        y:
+          gain: 0.8
+          deadband_m: 0.10
+          output_limit_mps: 1.0
+
+        z:
+          gain: 0.8
+          deadband_m: 0.10
+          output_limit_mps: 0.8
+
+        yaw:
+          gain: 1.2
+          deadband_rad: 0.10  #约5.73度
+          output_limit_radps: 0.5236 #最大30度/秒，即0.5236弧度/秒

@@ -9,7 +9,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
+  message_filters
   message_generation
+  nav_msgs
   roscpp
   std_msgs
 )
@@ -29,7 +31,7 @@ generate_messages(
 
 catkin_package(
   INCLUDE_DIRS include psdk_lib/include
-  CATKIN_DEPENDS geometry_msgs message_runtime roscpp std_msgs
+  CATKIN_DEPENDS geometry_msgs message_filters message_runtime nav_msgs roscpp std_msgs
 )
 
 set(PAYLOAD_SDK_LIBRARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/psdk_lib/lib")
