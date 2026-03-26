@@ -1,142 +1,155 @@
 # indooruav_dji_driver
 
-`indooruav_dji_driver` 是一个基于 DJI Payload SDK 的 ROS1 驱动包，用来把 DJI Mavic 3T 的部分飞控、云台和相机能力封装成 ROS 接口，便于上层自主飞行、任务调度或实验程序调用。
+`indooruav_dji_driver` 是一个面向 ROS1 的 DJI Payload SDK 驱动包，当前主要服务于 `DJI Mavic 3T` 的机载接入场景。它把飞控、云台、相机的部分能力封装成 ROS 接口，方便上层自主飞行、状态机、任务调度或实验程序直接调用。
 
-当前实现以 `mavic_3t_driver_node` 为核心，完成了以下几类能力：
+当前实现以 `mavic_3t_driver_node` 为核心，完成了以下几件事：
 
-- 订阅 `geometry_msgs/TwistStamped` 的机体系 FLU 速度控制命令
-- 提供起飞、强制降落、云台俯仰控制、相机拍照服务
 - 初始化 DJI Payload SDK 运行环境
-- 订阅 DJI 飞控内部状态数据，用于控制逻辑和状态判断
+- 订阅 DJI 飞控内部状态数据，供控制逻辑和安全切换使用
+- 提供起飞、降落、云台俯仰、相机拍照等 ROS Service
+- 提供两种控制方式
+  - 基于两路 `nav_msgs/Odometry` 的位置控制模式
+  - 基于 `geometry_msgs/TwistStamped` 的机体系速度控制模式
 
-这个包适合做什么：
+这个包更适合作为“DJI PSDK 到 ROS 的底层适配层”，而不是完整的状态桥接包。当前版本不会把 DJI 内部订阅数据发布成标准 ROS 话题，也不提供完整导航状态输出。
 
-- 室内无人机实验中的底层控制适配层
-- 将 DJI PSDK 接入 ROS1 系统
-- 为上层路径规划、状态机、视觉任务提供统一入口
+## 功能概览
 
-这个包目前不做什么：
+### 1. 飞控控制
 
-- 不发布 IMU、姿态、位置、电池等 ROS 话题
-- 不提供完整的状态估计桥接
-- 不提供录像、变焦单独控制、回家等 ROS 服务
-- 不包含仿真环境
+- 提供起飞服务 `TakeOffService`
+- 提供降落服务 `LandingService`
+- 支持机体系 `FLU` 速度控制输入
+- 支持基于期望/当前 `Odometry` 的闭环位置控制
+- 起飞后会启动 RC 摇杆检测逻辑，在 RC 和 PSDK 之间自动切换控制权
 
-## 1. 项目结构
+### 2. 云台控制
+
+- 提供云台俯仰角服务
+- 云台初始化时会设置为 `DJI_GIMBAL_MODE_YAW_FOLLOW`
+- 俯仰角请求会被限制在 `[-90, 0]` 度
+
+### 3. 相机控制
+
+- 提供单张拍照服务
+- 拍照前可选择设置一次光学变焦
+- 当前代码将光学变焦限制为 `[1.0, 6.9]`
+
+### 4. 内部数据订阅
+
+驱动启动后会通过 DJI PSDK 订阅多类飞控内部 topic，例如姿态、速度、RC、控制权、飞行模式、异常信息、电池信息等。这些数据当前主要用于：
+
+- 起飞过程状态判断
+- RC/PSDK 控制权切换
+- 云台控制中的姿态参考
+- 运行期安全判断与后续扩展
+
+注意：这些订阅目前不会直接桥接为 ROS publisher。
+
+## 项目结构
 
 ```text
 indooruav_dji_driver/
 ├── config/
-│   └── mavic_3t_config.yaml          # ROS 参数
+│   └── mavic_3t_config.yaml
 ├── include/
-│   ├── dependences/                  # DJI PSDK 平台适配层头文件
-│   └── indooruav_dji_driver/         # 控制器头文件
+│   ├── dependences/
+│   └── indooruav_dji_driver/
 ├── launch/
-│   └── mavic_3t_driver.launch        # 启动文件
+│   └── mavic_3t_driver.launch
 ├── node/
-│   └── mavic_3t_driver.cpp           # 主节点入口
-├── psdk_lib/                         # DJI Payload SDK 头文件与静态库
+│   └── mavic_3t_driver.cpp
+├── psdk_lib/
+│   ├── include/
+│   └── lib/
 ├── src/
-│   ├── dependences/                  # UART / OSAL / Application 适配实现
-│   └── indooruav_dji_driver/         # 飞控、云台、相机、数据订阅实现
-└── srv/                              # 自定义 ROS Service 定义
+│   ├── dependences/
+│   └── indooruav_dji_driver/
+└── srv/
 ```
 
-## 2. 功能概览
+主要文件说明：
 
-### 飞控控制
+- `node/mavic_3t_driver.cpp`：主节点入口
+- `src/dependences/application.cpp`：PSDK 平台环境初始化
+- `src/indooruav_dji_driver/mavic_3t_flight_controller.cpp`：飞控控制与位置控制逻辑
+- `src/indooruav_dji_driver/mavic_3t_gimbal_controller.cpp`：云台控制
+- `src/indooruav_dji_driver/mavic_3t_camera_controller.cpp`：相机控制
+- `src/indooruav_dji_driver/mavic_3t_data_subscription_manager.cpp`：DJI 内部数据订阅
+- `config/mavic_3t_config.yaml`：运行时 ROS 参数
 
-- 节点订阅一个速度控制话题，将 ROS 指令直接映射到 DJI joystick command
-- 起飞服务会等待电机启动、离地、起飞结束三个阶段完成后再返回成功
-- 降落服务当前实际调用的是 **强制降落** 接口，而不是普通自动降落
-- 起飞成功后，节点会启动 RC 摇杆检测逻辑，自动在 RC 和 PSDK 之间切换控制权
-
-### 云台控制
-
-- 提供云台俯仰角服务
-- 云台模式初始化为 `DJI_GIMBAL_MODE_YAW_FOLLOW`
-- 请求角度会被限制到 `[-90, 0]` 度
-
-### 相机控制
-
-- 提供拍照服务
-- 可在拍照前附带设置一次光学变焦
-- 当前代码中光学变焦限制为 `[1.0, 6.9]`
-
-### DJI 内部数据订阅
-
-节点启动后会订阅多类 DJI 飞控内部 topic，包括：
-
-- Quaternion
-- Velocity
-- AngularRateFusioned
-- RC
-- GimbalAngles
-- Flight Status
-- Display Mode
-- Control Device
-- RCWithFlagData
-- Flight Anomaly
-- PositionVO
-- BatterySingleInfoIndex1
-
-注意：这些订阅当前只在节点内部使用，**不会发布为 ROS 话题**。
-
-## 3. 依赖与运行环境
+## 运行环境与依赖
 
 ### 软件依赖
 
 - Ubuntu + ROS1 Catkin 工作空间
 - `roscpp`
 - `geometry_msgs`
+- `nav_msgs`
+- `message_filters`
 - `std_msgs`
-- `message_generation` / `message_runtime`
-- DJI Payload SDK 静态库和头文件
+- `message_generation`
+- `message_runtime`
 
-### 硬件与连接方式
+### DJI Payload SDK
 
-当前代码使用 DJI Payload SDK 的 Linux 平台适配实现，并且默认编译为：
+仓库已经包含 PSDK 头文件和静态库，`CMakeLists.txt` 会根据 `CMAKE_SYSTEM_PROCESSOR` 自动选择对应架构的库文件。目前支持：
+
+- `x86_64` / `amd64`
+- `aarch64` / `arm64`
+- `armv7l` / `armv7` / `arm`
+
+如果当前平台不在上述列表中，编译会直接失败。
+
+### 硬件连接方式
+
+当前工程在 [`include/dependences/dji_sdk_config.h`](/home/lxy/indooruav_ws/src/indooruav_dji_driver/include/dependences/dji_sdk_config.h) 中固定为：
 
 ```c
 #define CONFIG_HARDWARE_CONNECTION DJI_USE_ONLY_UART
 ```
 
-也就是说，当前工程默认走 **UART 连接**。
+也就是说，当前默认走 UART 连接。
 
-串口设备名定义在 `include/dependences/hal_uart.h`：
+串口设备名在 [`include/dependences/hal_uart.h`](/home/lxy/indooruav_ws/src/indooruav_dji_driver/include/dependences/hal_uart.h) 中定义，默认值为：
 
 - `LINUX_UART_DEV1 = "/dev/ttyTHS0"`
 - `LINUX_UART_DEV2 = "/dev/ttyACM0"`
 
-如果你的机载计算平台、转接板或实际接线不同，需要按实际环境修改这里的设备名。
+如果你的机载平台、转接板或接线方式不同，需要按实际环境修改。
 
-### 支持的编译架构
+### 挂载位置要求
 
-`CMakeLists.txt` 会根据 `CMAKE_SYSTEM_PROCESSOR` 自动选择 `psdk_lib/lib` 下的静态库，目前支持：
+程序启动时会检查设备安装位置或适配器类型。当前代码要求至少满足以下之一：
 
-- `x86_64`
-- `aarch64`
-- `armv7 / arm`
+- 挂载在 extension port
+- 使用 E-Port V2 ribbon cable
+- 使用 SkyPort V3
 
-## 4. 编译前需要配置的内容
+如果不满足，节点会在启动阶段直接报错退出。
 
-### 4.1 DJI 开发者信息
+### Payload 口位
 
-仓库中提交的：
+当前云台和相机控制都固定使用：
 
-- `include/dependences/dji_sdk_app_info.h`
+```c
+DJI_MOUNT_POSITION_PAYLOAD_PORT_NO1
+```
 
-现在只保留占位符，不再存放真实密钥。
+如果你的设备不在 `payload port no1`，需要同时修改相机和云台控制代码中的挂载口常量。
 
-真实凭据应保存在本地文件：
+## 编译前准备
 
-- `include/dependences/dji_sdk_app_info_local.h`
+### 1. 配置本地 DJI 凭据
 
-这个本地文件已经被 `.gitignore` 忽略，不会被提交到仓库。仓库里同时提供了模板：
+先基于模板创建本地头文件：
 
-- `include/dependences/dji_sdk_app_info_local.h.example`
+```bash
+cp include/dependences/dji_sdk_app_info_local.h.example \
+   include/dependences/dji_sdk_app_info_local.h
+```
 
-本地文件中需要填写的字段包括：
+然后填写本地文件 `include/dependences/dji_sdk_app_info_local.h` 中的真实内容。程序启动时会实际读取以下宏：
 
 - `USER_APP_NAME`
 - `USER_APP_ID`
@@ -144,42 +157,36 @@ indooruav_dji_driver/
 - `USER_APP_LICENSE`
 - `USER_DEVELOPER_ACCOUNT`
 - `USER_BAUD_RATE`
-
-如果本地文件不存在，程序会继续编译，但运行时会因为仍是占位符而报错退出。
-
-### 4.2 运行时本地配置
-
-- `include/dependences/dji_sdk_app_info_local.h`
-
-仓库中只保留模板文件：
-
-- `include/dependences/dji_sdk_app_info_local.h.example`
-
-`Application` 初始化阶段会从本地头文件读取下面这几个宏：
-
 - `USER_PSDK_ALIAS`
 - `USER_PSDK_SERIAL_NUMBER`
 - `USER_PSDK_LOG_PATH`
 
-### 4.3 安装位置检查
+如果没有填写真实值，代码通常仍然可以编译，但运行时会在应用初始化阶段报错并退出。
 
-启动时程序会检查 DJI 设备安装位置或适配器类型，不满足条件会直接报错退出。当前代码要求满足以下之一：
+仓库内的 [`include/dependences/dji_sdk_app_info.h`](/home/lxy/indooruav_ws/src/indooruav_dji_driver/include/dependences/dji_sdk_app_info.h) 只保留占位符；本地文件 `include/dependences/dji_sdk_app_info_local.h` 已在 `.gitignore` 中忽略。
 
-- 安装在 extension port
-- 使用 E-Port V2 ribbon cable
-- 使用 SkyPort V3
+### 2. 检查串口与波特率
 
-### 4.4 Payload 挂载口
+需要同时确认两处配置：
 
-云台和相机控制器当前都固定使用：
+- 串口设备路径：[`include/dependences/hal_uart.h`](/home/lxy/indooruav_ws/src/indooruav_dji_driver/include/dependences/hal_uart.h)
+- 波特率：`USER_BAUD_RATE`
 
-```c
-DJI_MOUNT_POSITION_PAYLOAD_PORT_NO1
+### 3. 检查串口权限
+
+运行用户需要有目标串口设备的访问权限，否则 PSDK 初始化会失败。
+
+### 4. 检查日志路径
+
+日志根路径由 `USER_PSDK_LOG_PATH` 指定。默认模板值为：
+
+```text
+Logs/DJI
 ```
 
-如果你的设备实际不在 `payload port no1`，需要同步修改对应常量。
+控制台日志会输出到终端，本地日志文件会写到 `Logs/` 目录下。
 
-## 5. 编译方法
+## 编译与启动
 
 在 catkin 工作空间根目录执行：
 
@@ -188,89 +195,89 @@ catkin_make --pkg indooruav_dji_driver
 source devel/setup.bash
 ```
 
-如果你希望直接编译整个工作空间，也可以使用：
+或者直接编译整个工作空间：
 
 ```bash
 catkin_make
 source devel/setup.bash
 ```
 
-## 6. 启动方法
-
-默认启动文件：
+启动命令：
 
 ```bash
 roslaunch indooruav_dji_driver mavic_3t_driver.launch
 ```
 
-这个 launch 文件会：
+该 launch 文件会：
 
-1. 加载 `config/mavic_3t_config.yaml`
-2. 启动节点 `mavic_3t_driver_node`
+- 加载 `config/mavic_3t_config.yaml`
+- 启动可执行文件 `mavic_3t_driver_node`
 
-节点名为：
+默认 ROS 节点名为：
 
 ```text
 /mavic_3t_driver
 ```
 
-日志会输出到终端，同时 DJI 本地日志会写入：
+## 控制模式
 
-```text
-Logs/
-```
+### 1. 位置控制模式
 
-## 7. ROS 接口说明
+默认情况下，`parameters.position_control.enabled=true`，驱动会启用基于 `Odometry` 的位置控制逻辑，而不是直接订阅速度控制话题。
 
-### 7.1 订阅话题
+该模式下会订阅两路输入：
 
-#### `/indooruav/desired_odometry`
+- `desired_odometry`：期望位置与姿态
+- `current_odometry`：当前位置与姿态
 
-- 类型：`nav_msgs/Odometry`
-- 作用：提供激光雷达 `FLU` 坐标系下的期望位置姿态
-- 默认参数路径：`/indooruav_dji_driver/dji_mavic_3t/topics/desired_odometry`
+两路消息都要求是 `nav_msgs/Odometry`，并且应处在同一个参考系中。当前代码假设它们都表达为同一个“世界系 / 雷达参考系下的 `FLU`”。
 
-#### `/indooruav/current_odometry`
+控制流程如下：
 
-- 类型：`nav_msgs/Odometry`
-- 作用：提供激光雷达 `FLU` 坐标系下的当前位置姿态
-- 默认参数路径：`/indooruav_dji_driver/dji_mavic_3t/topics/current_odometry`
+1. 使用 `message_filters::Synchronizer` 对两路 `Odometry` 做近似时间同步
+2. 读取 `pose.pose.position` 和四元数姿态中的 `yaw`
+3. 分别计算 `x / y / z / yaw` 误差
+4. 应用各轴死区、比例增益和输出限幅
+5. 将水平速度从世界系 `FLU` 转换到机体系 `FLU`
+6. 再映射到 DJI 的机体系 `FRU` joystick 命令并下发
 
-当 `parameters.position_control.enabled=true` 时，飞控会基于这两路 `Odometry` 执行位置控制：
+这套控制器当前只使用 `Odometry` 中的位姿信息，不使用速度协方差等其他字段。
 
-1. 使用 `message_filters::Synchronizer` 对期望/当前 `Odometry` 做近似时间同步。
-2. 读取 `pose.pose.position` 与四元数姿态中的 `yaw`。
-3. 在激光雷达 `FLU` 坐标系下分别计算 `x / y / z` 位置误差和 `yaw` 误差。
-4. 按 `config/mavic_3t_config.yaml` 里的轴向增益、死区和速度限幅生成 `xyz` 线速度与 `yaw` 角速度。
-5. 使用当前 `yaw` 将水平速度从世界/雷达 `FLU` 转换到机体系 `FLU`。
-6. 再按 `FLU -> DJI FRU` 规则映射到 `T_DjiFlightControllerJoystickCommand` 并下发给 DJI。
-7. 若同步后的 `Odometry` 超时，且 `send_zero_on_timeout=true`，驱动会发送一次零速度命令做保护。
+如果同步后的 `Odometry` 超过 `odometry_timeout_s` 没有更新：
 
-当前实现假设这两路 `Odometry` 的位置与姿态都处在同一个激光雷达 `FLU` 参考系中。
+- 节点会打印节流警告
+- 当 `send_zero_on_timeout=true` 时，会发送一次零速度命令作为保护
 
-#### `/PSDK/DjiFlightController/CommandInBodyFLU`
+### 2. 直接速度控制模式
 
-- 类型：`geometry_msgs/TwistStamped`
-- 作用：兼容旧的直接速度控制接口
-- 默认参数路径：`/indooruav_dji_driver/dji_mavic_3t/topics/command_in_body_flu`
-- 生效条件：`/indooruav_dji_driver/dji_mavic_3t/parameters/position_control/enabled=false`
+当 `parameters.position_control.enabled=false` 时，驱动切换到兼容模式，订阅机体系 `FLU` 速度命令：
 
-该模式下会直接读取机体系 `FLU` 下的 `xyz` 速度和 `yaw` 角速度，并按下列规则下发 DJI：
+- 话题类型：`geometry_msgs/TwistStamped`
+- 默认话题名：`/PSDK/DjiFlightController/CommandInBodyFLU`
+
+该模式下实际使用的字段是：
+
+- `twist.linear.x`
+- `twist.linear.y`
+- `twist.linear.z`
+- `twist.angular.z`
+
+然后按以下规则映射到 DJI joystick 命令：
 
 - `x_dji = x_flu`
 - `y_dji = -y_flu`
 - `z_dji = z_flu`
-- `yaw_dji = -yaw_flu * 180 / pi`
+- `yaw_dji = -yaw_rate_rad_per_sec * 180 / pi`
 
-飞控 joystick mode 仍然保持：
+Joystick mode 固定为：
 
 - 水平控制：速度模式
 - 垂直控制：速度模式
 - 偏航控制：角速度模式
-- 水平坐标系：DJI 机体系 `FRU`
+- 水平坐标系：机体系
 - 稳定模式：开启
 
-兼容模式示例：
+示例：
 
 ```bash
 rostopic pub -r 20 /PSDK/DjiFlightController/CommandInBodyFLU geometry_msgs/TwistStamped '{
@@ -282,20 +289,59 @@ rostopic pub -r 20 /PSDK/DjiFlightController/CommandInBodyFLU geometry_msgs/Twis
 }'
 ```
 
-### 7.2 服务
+### 3. RC / PSDK 控制权切换
 
-#### `/PSDK/DjiFlightController/TakeOffService`
+起飞成功后，飞控控制器会启动一个定时器，周期性检查：
 
-- 类型：`indooruav_dji_driver/PSDK_TakeOff`
-- 请求：
+- RC 是否连接
+- RC 摇杆是否处于中立位
+- 当前控制权是在 RC 还是 PSDK
+
+逻辑如下：
+
+1. 如果当前是 PSDK 在控，且检测到 RC 摇杆偏离中立位，驱动会释放 joystick authority 给 RC
+2. 如果当前是 RC 在控，且摇杆持续回中达到 `rc_control_return_delay_s`，驱动会重新申请 joystick authority
+
+这是一套很重要的安全机制，意味着人工遥控可以优先接管，而程序恢复接管需要等待 RC 保持中立一段时间。
+
+## ROS 接口
+
+### 输入话题
+
+| 名称 | 类型 | 说明 |
+| --- | --- | --- |
+| `/indooruav/desired_odometry` | `nav_msgs/Odometry` | 位置控制模式下的期望位姿输入 |
+| `/indooruav/current_odometry` | `nav_msgs/Odometry` | 位置控制模式下的当前位姿输入 |
+| `/PSDK/DjiFlightController/CommandInBodyFLU` | `geometry_msgs/TwistStamped` | 直接速度控制模式输入，仅在 `position_control.enabled=false` 时使用 |
+
+### 服务
+
+| 名称 | 类型 | 说明 |
+| --- | --- | --- |
+| `/PSDK/DjiFlightController/TakeOffService` | `indooruav_dji_driver/PSDK_TakeOff` | 起飞服务 |
+| `/PSDK/DjiFlightController/LandingService` | `indooruav_dji_driver/PSDK_Landing` | 降落服务 |
+| `/PSDK/DjiCameraController/CameraShootPhoto` | `indooruav_dji_driver/PSDK_CameraShootPhoto` | 拍照服务 |
+| `/PSDK/DjiGimbalController/GimbalPitchAngleInDegService` | `indooruav_dji_driver/PSDK_GimbalPitchAngleInDeg` | 云台俯仰角控制服务 |
+
+### 当前没有对外发布的话题
+
+尽管驱动内部订阅了大量 DJI 数据，但当前版本没有 ROS publisher。
+
+## 服务说明与示例
+
+### 1. 起飞服务
+
+服务类型：
+
+```text
+indooruav_dji_driver/PSDK_TakeOff
+```
+
+请求与响应：
 
 ```text
 bool takeoff
-```
-
-- 响应：
-
-```text
+---
 bool result
 ```
 
@@ -305,18 +351,19 @@ bool result
 rosservice call /PSDK/DjiFlightController/TakeOffService "takeoff: true"
 ```
 
-#### `/PSDK/DjiFlightController/LandingService`
+### 2. 降落服务
 
-- 类型：`indooruav_dji_driver/PSDK_Landing`
-- 请求：
+服务类型：
+
+```text
+indooruav_dji_driver/PSDK_Landing
+```
+
+请求与响应：
 
 ```text
 bool landing
-```
-
-- 响应：
-
-```text
+---
 bool result
 ```
 
@@ -326,30 +373,31 @@ bool result
 rosservice call /PSDK/DjiFlightController/LandingService "landing: true"
 ```
 
-重要说明：这个服务在当前实现中实际调用的是 `DjiFlightController_StartForceLanding()`，因此它的行为更接近 **强制降落**，请谨慎使用。
+重要说明：当前实现调用的是 `DjiFlightController_StartForceLanding()`，所以这个服务的实际行为更接近“强制降落”，而不是普通自动降落。使用前请充分评估安全风险。
 
-#### `/PSDK/DjiCameraController/CameraShootPhoto`
+### 3. 拍照服务
 
-- 类型：`indooruav_dji_driver/PSDK_CameraShootPhoto`
-- 请求：
+服务类型：
+
+```text
+indooruav_dji_driver/PSDK_CameraShootPhoto
+```
+
+请求与响应：
 
 ```text
 bool shoot_photo
 float32 zoom_factor
-```
-
-- 响应：
-
-```text
+---
 bool result
 ```
 
 行为说明：
 
-- 只有 `shoot_photo: true` 才会执行拍照
-- 当 `zoom_factor >= 1.0` 时，会先尝试设置光学变焦再拍照
-- 变焦倍率会被限制到 `[1.0, 6.9]`
-- 当 `zoom_factor < 1.0` 时，保持当前倍率直接拍照
+- 只有 `shoot_photo=true` 才会执行拍照
+- 当 `zoom_factor >= 1.0` 时，会先尝试设置光学变焦
+- 目标倍率会被限制在 `[1.0, 6.9]`
+- 如果当前倍率已经足够接近目标倍率，则不会重复设置
 
 示例：
 
@@ -359,26 +407,28 @@ rosservice call /PSDK/DjiCameraController/CameraShootPhoto \
 zoom_factor: 2.0"
 ```
 
-#### `/PSDK/DjiGimbalController/GimbalPitchAngleInDegService`
+### 4. 云台俯仰服务
 
-- 类型：`indooruav_dji_driver/PSDK_GimbalPitchAngleInDeg`
-- 请求：
+服务类型：
+
+```text
+indooruav_dji_driver/PSDK_GimbalPitchAngleInDeg
+```
+
+请求与响应：
 
 ```text
 float32 gimbal_pitch_angle_in_deg
-```
-
-- 响应：
-
-```text
+---
 bool result
 ```
 
 行为说明：
 
-- 输入角度会被限制到 `[-90, 0]`
-- 0 度表示水平
+- 输入角度会被限制在 `[-90, 0]`
+- `0` 度表示水平
 - 负值表示向下俯视
+- 服务内部使用绝对角模式，并把 yaw 设置为当前机体 yaw
 
 示例：
 
@@ -387,105 +437,140 @@ rosservice call /PSDK/DjiGimbalController/GimbalPitchAngleInDegService \
 "gimbal_pitch_angle_in_deg: -45.0"
 ```
 
-## 8. 参数说明
+## 参数说明
 
-默认参数文件：`config/mavic_3t_config.yaml`
-
-参数根路径：
+参数文件为 [`config/mavic_3t_config.yaml`](/home/lxy/indooruav_ws/src/indooruav_dji_driver/config/mavic_3t_config.yaml)，参数根路径为：
 
 ```text
 /indooruav_dji_driver/dji_mavic_3t
 ```
 
-当前代码实际会读取的参数如下：
+飞控控制器当前通过 `GetRequiredParam()` 读取这些参数，因此缺少任意一个必要参数都会在启动时抛出异常并退出。
+
+### 话题与服务名
 
 | 参数路径 | 默认值 | 说明 |
 | --- | --- | --- |
-| `/topics/command_in_body_flu` | `/PSDK/DjiFlightController/CommandInBodyFLU` | 兼容模式下的机体系 FLU 速度控制话题 |
-| `/topics/desired_odometry` | `/indooruav/desired_odometry` | 期望位置姿态 `Odometry` 话题 |
-| `/topics/current_odometry` | `/indooruav/current_odometry` | 当前位置姿态 `Odometry` 话题 |
+| `/topics/command_in_body_flu` | `/PSDK/DjiFlightController/CommandInBodyFLU` | 直接速度控制模式话题 |
+| `/topics/desired_odometry` | `/indooruav/desired_odometry` | 期望位姿输入 |
+| `/topics/current_odometry` | `/indooruav/current_odometry` | 当前位姿输入 |
 | `/services/takeoff` | `/PSDK/DjiFlightController/TakeOffService` | 起飞服务名 |
 | `/services/landing` | `/PSDK/DjiFlightController/LandingService` | 降落服务名 |
 | `/services/camera_shoot_photo` | `/PSDK/DjiCameraController/CameraShootPhoto` | 拍照服务名 |
-| `/services/gimbal_pitch_angle_in_deg` | `/PSDK/DjiGimbalController/GimbalPitchAngleInDegService` | 云台俯仰控制服务名 |
+| `/services/gimbal_pitch_angle_in_deg` | `/PSDK/DjiGimbalController/GimbalPitchAngleInDegService` | 云台俯仰服务名 |
+
+### 通用与起飞相关
+
+| 参数路径 | 默认值 | 说明 |
+| --- | --- | --- |
 | `/parameters/rc_value_detection_frequency_hz` | `10.0` | RC 中立检测频率 |
 | `/parameters/rc_zero_deadband` | `0.02` | RC 摇杆中立死区 |
 | `/parameters/rc_control_return_delay_s` | `5.0` | RC 回中后重新申请控制权的等待时间 |
-| `/parameters/command_subscriber_queue_size` | `10` | 兼容模式下直接速度命令订阅队列长度 |
-| `/parameters/takeoff/motor_started_timeout_cycles` | `20` | 起飞时等待电机启动的轮询次数 |
-| `/parameters/takeoff/in_air_timeout_cycles` | `110` | 起飞时等待进入空中的轮询次数 |
+| `/parameters/command_subscriber_queue_size` | `10` | 直接速度控制模式订阅队列长度 |
+| `/parameters/takeoff/motor_started_timeout_cycles` | `20` | 起飞阶段轮询超时计数 |
+| `/parameters/takeoff/in_air_timeout_cycles` | `110` | 起飞阶段轮询超时计数 |
 | `/parameters/rid_info/latitude_rad` | `0.0` | RID 纬度，单位 rad |
 | `/parameters/rid_info/longitude_rad` | `0.0` | RID 经度，单位 rad |
 | `/parameters/rid_info/altitude_m` | `0` | RID 高度，单位 m |
-| `/parameters/position_control/enabled` | `true` | 是否启用基于 `Odometry` 的位置控制 |
-| `/parameters/position_control/subscriber_queue_size` | `20` | 两路 `Odometry` 订阅队列长度 |
-| `/parameters/position_control/sync_queue_size` | `50` | `message_filters` 同步队列长度 |
-| `/parameters/position_control/sync_max_interval_s` | `0.05` | 允许的最大同步时间差 |
-| `/parameters/position_control/control_frequency_hz` | `30.0` | 位置控制器输出频率 |
+
+### 位置控制相关
+
+| 参数路径 | 默认值 | 说明 |
+| --- | --- | --- |
+| `/parameters/position_control/enabled` | `true` | 是否启用位置控制模式 |
+| `/parameters/position_control/subscriber_queue_size` | `20` | `Odometry` 订阅队列长度 |
+| `/parameters/position_control/sync_queue_size` | `50` | 同步器队列长度 |
+| `/parameters/position_control/sync_max_interval_s` | `0.05` | 两路 `Odometry` 允许的最大时间差 |
+| `/parameters/position_control/control_frequency_hz` | `30.0` | 控制器输出频率 |
 | `/parameters/position_control/odometry_timeout_s` | `0.2` | 同步 `Odometry` 超时阈值 |
-| `/parameters/position_control/send_zero_on_timeout` | `true` | `Odometry` 超时时是否发送零速度保护命令 |
-| `/parameters/position_control/x/gain` | `0.8` | `x` 轴位置误差增益 |
-| `/parameters/position_control/x/deadband_m` | `0.02` | `x` 轴位置误差死区 |
+| `/parameters/position_control/send_zero_on_timeout` | `true` | 超时后是否发送一次零速度命令 |
+| `/parameters/position_control/x/gain` | `0.8` | `x` 轴比例增益 |
+| `/parameters/position_control/x/deadband_m` | `0.10` | `x` 轴死区 |
 | `/parameters/position_control/x/output_limit_mps` | `1.0` | `x` 轴速度限幅 |
-| `/parameters/position_control/y/gain` | `0.8` | `y` 轴位置误差增益 |
-| `/parameters/position_control/y/deadband_m` | `0.02` | `y` 轴位置误差死区 |
+| `/parameters/position_control/y/gain` | `0.8` | `y` 轴比例增益 |
+| `/parameters/position_control/y/deadband_m` | `0.10` | `y` 轴死区 |
 | `/parameters/position_control/y/output_limit_mps` | `1.0` | `y` 轴速度限幅 |
-| `/parameters/position_control/z/gain` | `0.8` | `z` 轴位置误差增益 |
-| `/parameters/position_control/z/deadband_m` | `0.02` | `z` 轴位置误差死区 |
+| `/parameters/position_control/z/gain` | `0.8` | `z` 轴比例增益 |
+| `/parameters/position_control/z/deadband_m` | `0.10` | `z` 轴死区 |
 | `/parameters/position_control/z/output_limit_mps` | `0.8` | `z` 轴速度限幅 |
-| `/parameters/position_control/yaw/gain` | `1.2` | `yaw` 误差增益 |
-| `/parameters/position_control/yaw/deadband_rad` | `0.02` | `yaw` 误差死区 |
-| `/parameters/position_control/yaw/output_limit_radps` | `0.8` | `yaw` 角速度限幅 |
+| `/parameters/position_control/yaw/gain` | `1.2` | `yaw` 误差比例增益 |
+| `/parameters/position_control/yaw/deadband_rad` | `0.10` | `yaw` 误差死区 |
+| `/parameters/position_control/yaw/output_limit_radps` | `0.5236` | `yaw` 角速度限幅 |
 
-说明：
+## 内部 DJI 订阅项
 
+[`src/indooruav_dji_driver/mavic_3t_data_subscription_manager.cpp`](/home/lxy/indooruav_ws/src/indooruav_dji_driver/src/indooruav_dji_driver/mavic_3t_data_subscription_manager.cpp) 当前注册了以下内部 topic：
 
-## 9. 控制权切换逻辑
+| DJI topic | 频率 | 用途 |
+| --- | --- | --- |
+| `QUATERNION` | `10 Hz` | 姿态参考、云台 yaw 参考 |
+| `VELOCITY` | `10 Hz` | 内部保留 |
+| `ANGULAR_RATE_FUSIONED` | `10 Hz` | 内部保留 |
+| `RC` | `10 Hz` | 内部保留 |
+| `GIMBAL_ANGLES` | `50 Hz` | 云台角度参考 |
+| `STATUS_FLIGHT` | `10 Hz` | 起飞状态判断 |
+| `STATUS_DISPLAYMODE` | `10 Hz` | 起飞状态判断 |
+| `CONTROL_DEVICE` | `10 Hz` | 控制权判断 |
+| `RC_WITH_FLAG_DATA` | `10 Hz` | RC 连接与中立判断 |
+| `FLIGHT_ANOMALY` | `10 Hz` | 异常信息保留 |
+| `POSITION_VO` | `10 Hz` | 视觉里程计位置保留 |
+| `BATTERY_SINGLE_INFO_INDEX1` | `1 Hz` | 电池信息保留 |
 
-这是这个驱动里一个很重要的安全机制。
+电机启动错误码 topic 在代码里预留了回调，但当前没有真正订阅。
 
-起飞成功后，节点会启动一个定时器，周期性检查：
+## 已知限制与注意事项
 
-- RC 是否连接
-- RC 摇杆是否处于中立位
-- 当前飞行控制权属于 RC 还是 PSDK
+- 当前没有任何 ROS publisher，内部 DJI 订阅数据不会自动桥接到 ROS。
+- `LandingService` 实际执行的是强制降落，不是普通自动降落。
+- 位置控制器只使用两路 `Odometry` 的位姿，不使用其线速度信息。
+- 位置控制默认开启；开启后不会订阅直接速度控制话题。
+- 云台和相机挂载口当前写死为 `DJI_MOUNT_POSITION_PAYLOAD_PORT_NO1`。
+- 相机录像相关函数已经实现，但没有暴露成 ROS 接口。
+- 项目包含 DJI 相关头文件和静态库，`package.xml` 当前许可证标记为 `Proprietary`，请按你的分发场景自行评估。
 
-逻辑如下：
+## 常见排障
 
-1. 如果当前控制权属于 PSDK，且检测到 RC 有非中立输入，则驱动立即释放 joystick authority 给 RC。
-2. 如果当前控制权属于 RC，且摇杆已经保持中立达到 `rc_control_return_delay_s` 指定时长，则驱动会重新申请 joystick authority。
+### 节点启动即退出
 
-这意味着：
+优先检查以下几项：
 
-- 人工遥控可以随时“抢回”控制权
-- 上层程序恢复接管前，需要等待 RC 摇杆回中并保持 `rc_control_return_delay_s` 指定时长
+- `dji_sdk_app_info_local.h` 是否存在
+- 本地头文件中的占位符是否已替换为真实值
+- 串口设备路径是否正确
+- 当前用户是否有串口访问权限
+- Payload 挂载位置是否满足启动检查要求
 
-## 10. 已知限制与注意事项
+### 一直提示等待同步的 Odometry
 
-- 当前没有任何 ROS publisher，DJI 内部订阅数据只在节点内部消费。
-- `LandingService` 实际为强制降落，不是普通降落。
-- 相机录像相关函数已写在代码里，但没有暴露为 ROS 服务。
-- `StartLanding()` 和 `StartConfirmLanding()` 存在实现，但当前未对外使用。
-- 配置文件中的 `application.*` 参数尚未接线到实际初始化流程。
-- 串口权限处理依赖底层 `hal_uart.c`，请确保运行用户对目标串口设备有访问权限。
-- 本项目包含 DJI 相关头文件和静态库，`package.xml` 许可证标记为 `Proprietary`，请根据你的分发场景自行评估。
+如果看到类似“waiting for synchronized desired/current odometry”的警告，通常说明：
 
-## 11. 后续可改进方向
+- 两路 `Odometry` 没有同时发布
+- 时间戳不对齐，超过 `sync_max_interval_s`
+- 参考系定义不一致，导致上层输入本身就不合理
 
-如果你准备继续完善这个包，比较值得优先做的方向有：
+### 位置控制没有输出
 
-- 把 DJI 内部订阅数据桥接成标准 ROS topic
-- 将录像、停止录像、变焦单独封装成服务或 action
-- 为强制降落和普通降落拆分不同服务名，减少误用风险
-- 增加状态诊断、错误码说明和运行自检
+请检查：
 
-## 12. 相关文件
+- `position_control.enabled` 是否为 `true`
+- `desired_odometry` 与 `current_odometry` 是否持续更新
+- `odometry_timeout_s` 是否过小
+- 飞机当前是否已经由 RC 接管控制权
 
-- 主节点入口：`node/mavic_3t_driver.cpp`
-- 飞控控制：`src/indooruav_dji_driver/mavic_3t_flight_controller.cpp`
-- 云台控制：`src/indooruav_dji_driver/mavic_3t_gimbal_controller.cpp`
-- 相机控制：`src/indooruav_dji_driver/mavic_3t_camera_controller.cpp`
-- DJI 数据订阅：`src/indooruav_dji_driver/mavic_3t_data_subscription_manager.cpp`
-- 平台初始化：`src/dependences/application.cpp`
-- 参数配置：`config/mavic_3t_config.yaml`
-- 启动文件：`launch/mavic_3t_driver.launch`
+### 直接速度控制不生效
+
+请确认：
+
+- `position_control.enabled=false`
+- 正在向 `command_in_body_flu` 对应的话题发送 `geometry_msgs/TwistStamped`
+- 起飞后控制权已由 PSDK 获取，且没有被 RC 抢回
+
+## 后续建议
+
+如果你准备继续扩展这个包，比较值得优先做的方向包括：
+
+- 把内部 DJI 订阅数据桥接成标准 ROS topic
+- 为录像、停止录像、变焦单独增加 ROS 接口
+- 将普通降落与强制降落拆分为不同服务
+- 增加状态诊断、自检和错误码文档
+- 为位置控制器补充状态输出与调参说明
