@@ -3,7 +3,7 @@ indooruav_dji_driver:
     topics:
       # 两路输入都应位于同一个地面/world FLU 参考系下，类型均为 nav_msgs/Odometry
       desired_odometry: "/indooruav/desired_odometry"
-      current_odometry: "/indooruav/current_odometry"
+      current_odometry: "/Odometry_global_rotate"
 
     services:
       takeoff: "/PSDK/DjiFlightController/TakeOffService"
