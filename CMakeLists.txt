@@ -117,6 +117,23 @@ target_compile_options(mavic_3t_driver_node
     -Wextra
 )
 
+add_executable(mavic_3t_driver_test_node
+  node/mavic_3t_driver_test.cpp
+)
+add_dependencies(mavic_3t_driver_test_node
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+target_link_libraries(mavic_3t_driver_test_node
+  PRIVATE
+    ${catkin_LIBRARIES}
+)
+target_compile_options(mavic_3t_driver_test_node
+  PRIVATE
+    -Wall
+    -Wextra
+)
+
 set_source_files_properties(
   src/indooruav_dji_driver/mavic_3t_data_subscription_manager.cpp
   PROPERTIES
@@ -127,6 +144,7 @@ install(TARGETS
   ${PROJECT_NAME}_platform
   ${PROJECT_NAME}_driver
   mavic_3t_driver_node
+  mavic_3t_driver_test_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
