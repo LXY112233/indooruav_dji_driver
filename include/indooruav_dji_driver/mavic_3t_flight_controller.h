@@ -7,7 +7,6 @@
 
 #include <ros/ros.h>
 
-#include <geometry_msgs/TwistStamped.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
@@ -42,13 +41,20 @@ class DjiFlightController {
   };
 
   struct AxisControllerConfig {
-    double gain;
+    double kp;
+    double ki;
+    double kd;
     double deadband;
     double output_limit;
   };
 
+  struct AxisControllerState {
+    double integral;
+    double previous_error;
+    bool has_previous_error;
+  };
+
   struct PositionControlConfig {
-    bool enabled;
     int subscriber_queue_size;
     int sync_queue_size;
     double sync_max_interval_seconds;
@@ -62,7 +68,6 @@ class DjiFlightController {
   };
 
   struct FlightControllerConfig {
-    std::string command_in_body_flu_topic;
     std::string desired_odometry_topic;
     std::string current_odometry_topic;
     std::string takeoff_service_name;
@@ -70,7 +75,6 @@ class DjiFlightController {
     double rc_value_detection_frequency_hz;
     double rc_zero_deadband;
     double rc_control_return_delay_seconds;
-    int command_subscriber_queue_size;
     int motor_started_timeout_cycles;
     int takeoff_in_air_timeout_cycles;
     RidInfoConfig rid_info;
@@ -84,18 +88,20 @@ class DjiFlightController {
   FlightControllerConfig LoadConfig() const;
   T_DjiReturnCode Init();
   T_DjiReturnCode DeInit();
-  bool StartLanding();
-  bool StartConfirmLanding();
   bool SetVelocityJoystickMode();
 
   void TimerRcValueDetectionCallback(const ros::TimerEvent& event);
   void TimerPositionControlCallback(const ros::TimerEvent& event);
-  void CallbackCommandInBodyFLU(
-      const geometry_msgs::TwistStamped::ConstPtr& message);
   void CallbackSynchronizedOdometry(
       const nav_msgs::Odometry::ConstPtr& desired_message,
       const nav_msgs::Odometry::ConstPtr& current_message);
-  bool ExecuteJoystickCommandInBodyFLU(
+  double ComputeAxisVelocityCommand(
+      const AxisControllerConfig& config,
+      AxisControllerState* state,
+      double raw_error,
+      double dt);
+  void ResetPositionControllerState();
+  bool ExecuteJoystickCommandFromBodyFLU(
       double x_body_mps, double y_body_mps, double z_body_mps,
       double yaw_rate_rad_per_sec);
   bool ServiceTakeOffCallback(
@@ -111,7 +117,6 @@ class DjiFlightController {
   FlightControllerConfig config_;
   ros::Timer rc_value_detection_timer_;
   ros::Timer position_control_timer_;
-  ros::Subscriber command_in_body_flu_subscriber_;
   message_filters::Subscriber<nav_msgs::Odometry> desired_odometry_subscriber_;
   message_filters::Subscriber<nav_msgs::Odometry> current_odometry_subscriber_;
   std::unique_ptr<OdometrySynchronizer> odometry_synchronizer_;
@@ -119,6 +124,11 @@ class DjiFlightController {
   nav_msgs::Odometry latest_desired_odometry_;
   nav_msgs::Odometry latest_current_odometry_;
   ros::Time latest_synced_odometry_time_;
+  ros::Time last_position_control_time_;
+  AxisControllerState x_controller_state_;
+  AxisControllerState y_controller_state_;
+  AxisControllerState z_controller_state_;
+  AxisControllerState yaw_controller_state_;
   bool has_synced_odometry_;
   bool stale_command_sent_;
   ros::ServiceServer takeoff_server_;

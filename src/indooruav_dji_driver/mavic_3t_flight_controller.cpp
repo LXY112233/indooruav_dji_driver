@@ -18,6 +18,7 @@ namespace {
 constexpr char kParamPrefix[] = "/indooruav_dji_driver/dji_mavic_3t";
 constexpr double kDegreesPerRadian = 57.29577951308232;
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kMaxPidDtSeconds = 1.0;
 
 template <typename T>
 T GetRequiredParam(const std::string& suffix) {
@@ -267,6 +268,11 @@ DjiFlightController::DjiFlightController(T_DjiOsalHandler* osal_handler)
       current_odometry_subscriber_(),
       odometry_synchronizer_(),
       latest_synced_odometry_time_(),
+      last_position_control_time_(),
+      x_controller_state_(),
+      y_controller_state_(),
+      z_controller_state_(),
+      yaw_controller_state_(),
       has_synced_odometry_(false),
       stale_command_sent_(false) {
   config_ = LoadConfig();
@@ -277,41 +283,30 @@ DjiFlightController::DjiFlightController(T_DjiOsalHandler* osal_handler)
       &DjiFlightController::TimerRcValueDetectionCallback, this);
   rc_value_detection_timer_.stop();
 
-  if (config_.position_control.enabled) {
-    position_control_timer_ = node_handle_.createTimer(
-        ros::Duration(1.0 / config_.position_control.control_frequency_hz),
-        &DjiFlightController::TimerPositionControlCallback, this);
+  position_control_timer_ = node_handle_.createTimer(
+      ros::Duration(1.0 / config_.position_control.control_frequency_hz),
+      &DjiFlightController::TimerPositionControlCallback, this);
 
-    desired_odometry_subscriber_.subscribe(
-        node_handle_, config_.desired_odometry_topic,
-        static_cast<uint32_t>(config_.position_control.subscriber_queue_size));
-    current_odometry_subscriber_.subscribe(
-        node_handle_, config_.current_odometry_topic,
-        static_cast<uint32_t>(config_.position_control.subscriber_queue_size));
+  desired_odometry_subscriber_.subscribe(
+      node_handle_, config_.desired_odometry_topic,
+      static_cast<uint32_t>(config_.position_control.subscriber_queue_size));
+  current_odometry_subscriber_.subscribe(
+      node_handle_, config_.current_odometry_topic,
+      static_cast<uint32_t>(config_.position_control.subscriber_queue_size));
 
-    odometry_synchronizer_.reset(new OdometrySynchronizer(
-        OdometrySyncPolicy(config_.position_control.sync_queue_size),
-        desired_odometry_subscriber_, current_odometry_subscriber_));
-    odometry_synchronizer_->setMaxIntervalDuration(
-        ros::Duration(config_.position_control.sync_max_interval_seconds));
-    odometry_synchronizer_->registerCallback(boost::bind(
-        &DjiFlightController::CallbackSynchronizedOdometry, this,
-        boost::placeholders::_1, boost::placeholders::_2));
+  odometry_synchronizer_.reset(new OdometrySynchronizer(
+      OdometrySyncPolicy(config_.position_control.sync_queue_size),
+      desired_odometry_subscriber_, current_odometry_subscriber_));
+  odometry_synchronizer_->setMaxIntervalDuration(
+      ros::Duration(config_.position_control.sync_max_interval_seconds));
+  odometry_synchronizer_->registerCallback(boost::bind(
+      &DjiFlightController::CallbackSynchronizedOdometry, this,
+      boost::placeholders::_1, boost::placeholders::_2));
 
-    USER_LOG_INFO(
-        "Position control enabled. desired odometry topic: %s, current odometry topic: %s.",
-        config_.desired_odometry_topic.c_str(),
-        config_.current_odometry_topic.c_str());
-  } else {
-    command_in_body_flu_subscriber_ = node_handle_.subscribe(
-        config_.command_in_body_flu_topic,
-        static_cast<uint32_t>(config_.command_subscriber_queue_size),
-        &DjiFlightController::CallbackCommandInBodyFLU, this);
-
-    USER_LOG_INFO(
-        "Direct FLU velocity command mode enabled. command topic: %s.",
-        config_.command_in_body_flu_topic.c_str());
-  }
+  USER_LOG_INFO(
+      "Odometry-driven position controller initialized. desired odometry topic: %s, current odometry topic: %s.",
+      config_.desired_odometry_topic.c_str(),
+      config_.current_odometry_topic.c_str());
 
   takeoff_server_ = node_handle_.advertiseService(
       config_.takeoff_service_name,
@@ -330,8 +325,6 @@ DjiFlightController::~DjiFlightController() {
 DjiFlightController::FlightControllerConfig DjiFlightController::LoadConfig() const {
   FlightControllerConfig config = {};
 
-  config.command_in_body_flu_topic =
-      GetRequiredParam<std::string>("/topics/command_in_body_flu");
   config.desired_odometry_topic =
       GetRequiredParam<std::string>("/topics/desired_odometry");
   config.current_odometry_topic =
@@ -341,8 +334,6 @@ DjiFlightController::FlightControllerConfig DjiFlightController::LoadConfig() co
   config.landing_service_name =
       GetRequiredParam<std::string>("/services/landing");
 
-  ValidateNonEmptyString(
-      "/topics/command_in_body_flu", config.command_in_body_flu_topic);
   ValidateNonEmptyString(
       "/topics/desired_odometry", config.desired_odometry_topic);
   ValidateNonEmptyString(
@@ -358,8 +349,6 @@ DjiFlightController::FlightControllerConfig DjiFlightController::LoadConfig() co
       GetRequiredParam<double>("/parameters/rc_zero_deadband");
   config.rc_control_return_delay_seconds = GetRequiredParam<double>(
       "/parameters/rc_control_return_delay_s");
-  config.command_subscriber_queue_size = GetRequiredParam<int>(
-      "/parameters/command_subscriber_queue_size");
   config.motor_started_timeout_cycles = GetRequiredParam<int>(
       "/parameters/takeoff/motor_started_timeout_cycles");
   config.takeoff_in_air_timeout_cycles = GetRequiredParam<int>(
@@ -373,9 +362,6 @@ DjiFlightController::FlightControllerConfig DjiFlightController::LoadConfig() co
   ValidatePositiveDouble(
       "/parameters/rc_control_return_delay_s",
       config.rc_control_return_delay_seconds);
-  ValidatePositiveInt(
-      "/parameters/command_subscriber_queue_size",
-      config.command_subscriber_queue_size);
   ValidatePositiveInt(
       "/parameters/takeoff/motor_started_timeout_cycles",
       config.motor_started_timeout_cycles);
@@ -398,8 +384,6 @@ DjiFlightController::FlightControllerConfig DjiFlightController::LoadConfig() co
         "/parameters/rid_info/altitude_m");
   }
 
-  config.position_control.enabled =
-      GetRequiredParam<bool>("/parameters/position_control/enabled");
   config.position_control.subscriber_queue_size = GetRequiredParam<int>(
       "/parameters/position_control/subscriber_queue_size");
   config.position_control.sync_queue_size = GetRequiredParam<int>(
@@ -429,61 +413,107 @@ DjiFlightController::FlightControllerConfig DjiFlightController::LoadConfig() co
       "/parameters/position_control/odometry_timeout_s",
       config.position_control.odometry_timeout_seconds);
 
-  config.position_control.x.gain =
-      GetRequiredParam<double>("/parameters/position_control/x/gain");
+  config.position_control.x.kp =
+      GetRequiredParam<double>("/parameters/position_control/x/kp");
+  config.position_control.x.ki =
+      GetRequiredParam<double>("/parameters/position_control/x/ki");
+  config.position_control.x.kd =
+      GetRequiredParam<double>("/parameters/position_control/x/kd");
   config.position_control.x.deadband =
       GetRequiredParam<double>("/parameters/position_control/x/deadband_m");
   config.position_control.x.output_limit = GetRequiredParam<double>(
       "/parameters/position_control/x/output_limit_mps");
-  config.position_control.y.gain =
-      GetRequiredParam<double>("/parameters/position_control/y/gain");
+
+  config.position_control.y.kp =
+      GetRequiredParam<double>("/parameters/position_control/y/kp");
+  config.position_control.y.ki =
+      GetRequiredParam<double>("/parameters/position_control/y/ki");
+  config.position_control.y.kd =
+      GetRequiredParam<double>("/parameters/position_control/y/kd");
   config.position_control.y.deadband =
       GetRequiredParam<double>("/parameters/position_control/y/deadband_m");
   config.position_control.y.output_limit = GetRequiredParam<double>(
       "/parameters/position_control/y/output_limit_mps");
-  config.position_control.z.gain =
-      GetRequiredParam<double>("/parameters/position_control/z/gain");
+
+  config.position_control.z.kp =
+      GetRequiredParam<double>("/parameters/position_control/z/kp");
+  config.position_control.z.ki =
+      GetRequiredParam<double>("/parameters/position_control/z/ki");
+  config.position_control.z.kd =
+      GetRequiredParam<double>("/parameters/position_control/z/kd");
   config.position_control.z.deadband =
       GetRequiredParam<double>("/parameters/position_control/z/deadband_m");
   config.position_control.z.output_limit = GetRequiredParam<double>(
       "/parameters/position_control/z/output_limit_mps");
-  config.position_control.yaw.gain =
-      GetRequiredParam<double>("/parameters/position_control/yaw/gain");
+
+  config.position_control.yaw.kp =
+      GetRequiredParam<double>("/parameters/position_control/yaw/kp");
+  config.position_control.yaw.ki =
+      GetRequiredParam<double>("/parameters/position_control/yaw/ki");
+  config.position_control.yaw.kd =
+      GetRequiredParam<double>("/parameters/position_control/yaw/kd");
   config.position_control.yaw.deadband = GetRequiredParam<double>(
       "/parameters/position_control/yaw/deadband_rad");
   config.position_control.yaw.output_limit = GetRequiredParam<double>(
       "/parameters/position_control/yaw/output_limit_radps");
 
   ValidateNonNegativeDouble(
-      "/parameters/position_control/x/gain",
-      config.position_control.x.gain);
+      "/parameters/position_control/x/kp",
+      config.position_control.x.kp);
+  ValidateNonNegativeDouble(
+      "/parameters/position_control/x/ki",
+      config.position_control.x.ki);
+  ValidateNonNegativeDouble(
+      "/parameters/position_control/x/kd",
+      config.position_control.x.kd);
   ValidateNonNegativeDouble(
       "/parameters/position_control/x/deadband_m",
       config.position_control.x.deadband);
   ValidateNonNegativeDouble(
       "/parameters/position_control/x/output_limit_mps",
       config.position_control.x.output_limit);
+
   ValidateNonNegativeDouble(
-      "/parameters/position_control/y/gain",
-      config.position_control.y.gain);
+      "/parameters/position_control/y/kp",
+      config.position_control.y.kp);
+  ValidateNonNegativeDouble(
+      "/parameters/position_control/y/ki",
+      config.position_control.y.ki);
+  ValidateNonNegativeDouble(
+      "/parameters/position_control/y/kd",
+      config.position_control.y.kd);
   ValidateNonNegativeDouble(
       "/parameters/position_control/y/deadband_m",
       config.position_control.y.deadband);
   ValidateNonNegativeDouble(
       "/parameters/position_control/y/output_limit_mps",
       config.position_control.y.output_limit);
+
   ValidateNonNegativeDouble(
-      "/parameters/position_control/z/gain",
-      config.position_control.z.gain);
+      "/parameters/position_control/z/kp",
+      config.position_control.z.kp);
+  ValidateNonNegativeDouble(
+      "/parameters/position_control/z/ki",
+      config.position_control.z.ki);
+  ValidateNonNegativeDouble(
+      "/parameters/position_control/z/kd",
+      config.position_control.z.kd);
   ValidateNonNegativeDouble(
       "/parameters/position_control/z/deadband_m",
       config.position_control.z.deadband);
   ValidateNonNegativeDouble(
       "/parameters/position_control/z/output_limit_mps",
       config.position_control.z.output_limit);
+
   ValidateNonNegativeDouble(
-      "/parameters/position_control/yaw/gain",
-      config.position_control.yaw.gain);
+      "/parameters/position_control/yaw/kp",
+      config.position_control.yaw.kp);
+  ValidateNonNegativeDouble(
+      "/parameters/position_control/yaw/ki",
+      config.position_control.yaw.ki);
+  ValidateNonNegativeDouble(
+      "/parameters/position_control/yaw/kd",
+      config.position_control.yaw.kd);
   ValidateNonNegativeDouble(
       "/parameters/position_control/yaw/deadband_rad",
       config.position_control.yaw.deadband);
@@ -596,38 +626,9 @@ bool DjiFlightController::StartTakeOff() {
     return false;
   }
 
+  ResetPositionControllerState();
   rc_value_detection_timer_.start();
   USER_LOG_INFO("Takeoff successful.");
-  return true;
-}
-
-bool DjiFlightController::StartLanding() {
-  if (!initialized_) {
-    USER_LOG_ERROR("Flight controller is not initialized.");
-    return false;
-  }
-
-  const T_DjiReturnCode return_code = DjiFlightController_StartLanding();
-  if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
-    USER_LOG_ERROR("Request landing failed, error code: 0x%08X", return_code);
-    return false;
-  }
-
-  return true;
-}
-
-bool DjiFlightController::StartConfirmLanding() {
-  if (!initialized_) {
-    USER_LOG_ERROR("Flight controller is not initialized.");
-    return false;
-  }
-
-  const T_DjiReturnCode return_code = DjiFlightController_StartConfirmLanding();
-  if (return_code != DJI_ERROR_SYSTEM_MODULE_CODE_SUCCESS) {
-    USER_LOG_ERROR("Confirm landing failed, error code: 0x%08X", return_code);
-    return false;
-  }
-
   return true;
 }
 
@@ -643,6 +644,7 @@ bool DjiFlightController::StartForceLanding() {
     return false;
   }
 
+  ResetPositionControllerState();
   return true;
 }
 
@@ -756,7 +758,7 @@ void DjiFlightController::TimerRcValueDetectionCallback(
 void DjiFlightController::TimerPositionControlCallback(
     const ros::TimerEvent& event) {
   (void)event;
-  if (!initialized_ || !config_.position_control.enabled) {
+  if (!initialized_) {
     return;
   }
 
@@ -770,6 +772,7 @@ void DjiFlightController::TimerPositionControlCallback(
       ROS_WARN_THROTTLE(
           1.0,
           "Waiting for synchronized desired/current odometry before running position control.");
+      ResetPositionControllerState();
       return;
     }
 
@@ -778,14 +781,17 @@ void DjiFlightController::TimerPositionControlCallback(
     latest_sync_time = latest_synced_odometry_time_;
   }
 
+  const ros::Time current_time = ros::Time::now();
   const double odometry_age_seconds =
-      (ros::Time::now() - latest_sync_time).toSec();
+      (current_time - latest_sync_time).toSec();
   if (odometry_age_seconds > config_.position_control.odometry_timeout_seconds) {
     ROS_WARN_THROTTLE(
         1.0,
         "Synchronized odometry is stale (age=%.3f s, timeout=%.3f s).",
         odometry_age_seconds,
         config_.position_control.odometry_timeout_seconds);
+
+    ResetPositionControllerState();
 
     bool should_send_zero = false;
     {
@@ -798,7 +804,7 @@ void DjiFlightController::TimerPositionControlCallback(
     }
 
     if (should_send_zero) {
-      ExecuteJoystickCommandInBodyFLU(0.0, 0.0, 0.0, 0.0);
+      ExecuteJoystickCommandFromBodyFLU(0.0, 0.0, 0.0, 0.0);
     }
 
     return;
@@ -809,36 +815,41 @@ void DjiFlightController::TimerPositionControlCallback(
     stale_command_sent_ = false;
   }
 
-  const double x_error_world = ApplyDeadband(
-      desired_odometry.pose.pose.position.x - current_odometry.pose.pose.position.x,
-      config_.position_control.x.deadband);
-  const double y_error_world = ApplyDeadband(
-      desired_odometry.pose.pose.position.y - current_odometry.pose.pose.position.y,
-      config_.position_control.y.deadband);
-  const double z_error_world = ApplyDeadband(
-      desired_odometry.pose.pose.position.z - current_odometry.pose.pose.position.z,
-      config_.position_control.z.deadband);
+  double dt = 0.0;
+  if (!last_position_control_time_.isZero()) {
+    dt = (current_time - last_position_control_time_).toSec();
+  }
+
+  if (dt <= 0.0 || dt > kMaxPidDtSeconds) {
+    ResetPositionControllerState();
+    last_position_control_time_ = current_time;
+    dt = 0.0;
+  } else {
+    last_position_control_time_ = current_time;
+  }
+
+  const double x_error_world =
+      desired_odometry.pose.pose.position.x - current_odometry.pose.pose.position.x;
+  const double y_error_world =
+      desired_odometry.pose.pose.position.y - current_odometry.pose.pose.position.y;
+  const double z_error_world =
+      desired_odometry.pose.pose.position.z - current_odometry.pose.pose.position.z;
 
   const double desired_yaw =
       GetYawFromQuaternion(desired_odometry.pose.pose.orientation);
   const double current_yaw =
       GetYawFromQuaternion(current_odometry.pose.pose.orientation);
-  const double yaw_error = ApplyDeadband(
-      NormalizeAngleRadians(desired_yaw - current_yaw),
-      config_.position_control.yaw.deadband);
+  const double yaw_error =
+      NormalizeAngleRadians(desired_yaw - current_yaw);
 
-  const double x_velocity_world = ClampMagnitude(
-      config_.position_control.x.gain * x_error_world,
-      config_.position_control.x.output_limit);
-  const double y_velocity_world = ClampMagnitude(
-      config_.position_control.y.gain * y_error_world,
-      config_.position_control.y.output_limit);
-  const double z_velocity_world = ClampMagnitude(
-      config_.position_control.z.gain * z_error_world,
-      config_.position_control.z.output_limit);
-  const double yaw_rate_command = ClampMagnitude(
-      config_.position_control.yaw.gain * yaw_error,
-      config_.position_control.yaw.output_limit);
+  const double x_velocity_world = ComputeAxisVelocityCommand(
+      config_.position_control.x, &x_controller_state_, x_error_world, dt);
+  const double y_velocity_world = ComputeAxisVelocityCommand(
+      config_.position_control.y, &y_controller_state_, y_error_world, dt);
+  const double z_velocity_world = ComputeAxisVelocityCommand(
+      config_.position_control.z, &z_controller_state_, z_error_world, dt);
+  const double yaw_rate_command = ComputeAxisVelocityCommand(
+      config_.position_control.yaw, &yaw_controller_state_, yaw_error, dt);
 
   double x_velocity_body = 0.0;
   double y_velocity_body = 0.0;
@@ -846,7 +857,7 @@ void DjiFlightController::TimerPositionControlCallback(
       x_velocity_world, y_velocity_world, current_yaw,
       &x_velocity_body, &y_velocity_body);
 
-  ExecuteJoystickCommandInBodyFLU(
+  ExecuteJoystickCommandFromBodyFLU(
       x_velocity_body, y_velocity_body, z_velocity_world,
       yaw_rate_command);
 }
@@ -862,7 +873,50 @@ void DjiFlightController::CallbackSynchronizedOdometry(
   stale_command_sent_ = false;
 }
 
-bool DjiFlightController::ExecuteJoystickCommandInBodyFLU(
+double DjiFlightController::ComputeAxisVelocityCommand(
+    const AxisControllerConfig& config,
+    AxisControllerState* state,
+    double raw_error,
+    double dt) {
+  const double error = ApplyDeadband(raw_error, config.deadband);
+  if (error == 0.0) {
+    *state = AxisControllerState{};
+    return 0.0;
+  }
+
+  const double proportional_term = config.kp * error;
+
+  if (config.ki > 0.0 && dt > 0.0) {
+    state->integral += error * dt;
+    const double integral_limit = config.output_limit / config.ki;
+    state->integral = ClampMagnitude(state->integral, integral_limit);
+  } else if (config.ki <= 0.0) {
+    state->integral = 0.0;
+  }
+  const double integral_term = config.ki * state->integral;
+
+  double derivative_term = 0.0;
+  if (config.kd > 0.0 && dt > 0.0 && state->has_previous_error) {
+    derivative_term = config.kd * (error - state->previous_error) / dt;
+  }
+
+  state->previous_error = error;
+  state->has_previous_error = true;
+
+  return ClampMagnitude(
+      proportional_term + integral_term + derivative_term,
+      config.output_limit);
+}
+
+void DjiFlightController::ResetPositionControllerState() {
+  x_controller_state_ = AxisControllerState{};
+  y_controller_state_ = AxisControllerState{};
+  z_controller_state_ = AxisControllerState{};
+  yaw_controller_state_ = AxisControllerState{};
+  last_position_control_time_ = ros::Time();
+}
+
+bool DjiFlightController::ExecuteJoystickCommandFromBodyFLU(
     double x_body_mps, double y_body_mps, double z_body_mps,
     double yaw_rate_rad_per_sec) {
   if (!initialized_) {
@@ -873,7 +927,8 @@ bool DjiFlightController::ExecuteJoystickCommandInBodyFLU(
   joystick_command.x = static_cast<dji_f32_t>(x_body_mps);
   joystick_command.y = static_cast<dji_f32_t>(-y_body_mps);
   joystick_command.z = static_cast<dji_f32_t>(z_body_mps);
-  joystick_command.yaw = static_cast<dji_f32_t>(-yaw_rate_rad_per_sec * kDegreesPerRadian);
+  joystick_command.yaw = static_cast<dji_f32_t>(
+      -yaw_rate_rad_per_sec * kDegreesPerRadian);
 
   const T_DjiReturnCode return_code =
       DjiFlightController_ExecuteJoystickAction(joystick_command);
@@ -884,15 +939,6 @@ bool DjiFlightController::ExecuteJoystickCommandInBodyFLU(
   }
 
   return true;
-}
-
-void DjiFlightController::CallbackCommandInBodyFLU(
-    const geometry_msgs::TwistStamped::ConstPtr& message) {
-  ExecuteJoystickCommandInBodyFLU(
-      message->twist.linear.x,
-      message->twist.linear.y,
-      message->twist.linear.z,
-      message->twist.angular.z);
 }
 
 bool DjiFlightController::ServiceTakeOffCallback(
